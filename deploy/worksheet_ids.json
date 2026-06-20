@@ -1,0 +1,14 @@
+{
+  "product": "6a2bf816c839766934ee62e8",
+  "work_center": "6a2bf81a9e6cd05a84b842ca",
+  "production_order": "6a2bf822777a8aa776d5bd72",
+  "order_item": "6a2bf82888359ed35897e135",
+  "changeover_matrix": "6a2bf82eb650d46f3d1a4f70",
+  "kitting_info": "6a2bf8329702ee83242eb628",
+  "schedule_result": "6a2bf837c00b1ea7c04743f3",
+  "production_calendar": "6a2bf89d7a04850bc82c0845",
+  "buffer_config": "6a2d46fe9e6cd05a84c0ce55",
+  "process_route": "6a2d47767a04850bc8354298",
+  "resource_calendar": "6a2d47789e6cd05a84c0d1d8",
+  "schedule_plan": "6a2d477a3005b538f6a15913"
+}

@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+.env.local
+.env.production
+!.env.example
+node_modules/
+dist/
+*.egg-info/
+.pytest_cache/
+redis_data/
+pg_data/
+.venv/
+*.log
+.DS_Store
+Thumbs.db
