@@ -47,6 +47,23 @@ def _float_val(raw: Any, default: float = 0.0) -> float:
         return default
 
 
+def _compute_total_time(t: Any) -> float:
+    """V3修复: 根据 beat_count/cycle_time/prep_time/auto_type 重新计算 total_time。
+
+    确保自动工艺的 total_time = beat_count * (cycle_time + prep_time * 60)
+    非自动工艺的 total_time = beat_count * cycle_time + prep_time * 60
+    """
+    auto_type = getattr(t, 'auto_type', '') or ''
+    beat_count = getattr(t, 'beat_count', 0) or 0
+    cycle_time = getattr(t, 'cycle_time', 0) or 0
+    prep_time = getattr(t, 'prep_time', 0) or 0
+
+    if auto_type == "自动":
+        return float(beat_count * (cycle_time + prep_time * 60))
+    else:
+        return float(beat_count * cycle_time + prep_time * 60)
+
+
 async def _fetch_result_from_hap(plan_code: str) -> dict[str, Any]:
     """从 HAP 排产结果表读取数据，转换为前端格式。"""
     from app.hap.client import HAPClient
@@ -165,6 +182,9 @@ async def _fetch_result_from_hap(plan_code: str) -> dict[str, Any]:
                 "seq": int(_float_val(r.get("sr_seq", 0))),
                 "constraintType": proc_info.get("constraint_type", ""),
                 "priority": priority,
+                "completedQty": int(_float_val(r.get("sr_completed_qty", 0))),
+                "unfinishedQty": int(_float_val(r.get("sr_unfinished_qty", 0))),
+                "status": _str_val(r.get("sr_status", "待生产")) or "待生产",
             })
         workcenter_plans.append({
             "workcenterCode": line_id,
@@ -271,16 +291,39 @@ async def get_result(
             # 用 time_slot / slot_id / start_slot 索引查找实际时间
             slot_idx = t.time_slot if t.time_slot else (t.slot_id if t.slot_id else (t.start_slot if t.start_slot else 0))
             ts = slot_map.get(slot_idx)
-            if ts and hasattr(ts, 'date') and ts.date:
-                time_slot = f"{ts.date} {ts.hour:02d}:00"
+
+            # V3时间独占模式：每个任务生成一个 cell（不再按5分钟展开）
+            slot_count = getattr(t, 'slot_count', 0) or 0
+            start_time_str = getattr(t, 'start_time', '') or ''
+            end_time_str = getattr(t, 'end_time', '') or ''
+
+            # 生成时间槽显示文本：优先用 start_time ~ end_time，回退到 slot_map
+            if start_time_str and '全' in start_time_str:
+                # 日级时间槽（"2026-07-12 全天"），只用日期部分
+                time_slot_text = start_time_str[:10]
+            elif start_time_str and ' ' in start_time_str:
+                if end_time_str and end_time_str != start_time_str:
+                    time_slot_text = f"{start_time_str} ~ {end_time_str}"
+                else:
+                    time_slot_text = start_time_str
             else:
-                time_slot = f"Slot {slot_idx}"
+                # 旧模式：用slot_map查找
+                if ts and hasattr(ts, 'date') and ts.date:
+                    if ts.hour == 0:
+                        time_slot_text = f"{ts.date} 全天"
+                    else:
+                        time_slot_text = f"{ts.date} {ts.hour:02d}:00"
+                else:
+                    time_slot_text = f"Slot {slot_idx}"
+
             pid = t.product_id or t.product or ""
             # 通过 order_item_id/item_id 查找需求优先级
             demand_id = getattr(t, 'order_item_id', '') or getattr(t, 'item_id', '') or ''
             priority = demand_priorities.get(demand_id, '中')
+
+            # 每个任务只生成一个 cell
             cells.append({
-                "timeSlot": time_slot,
+                "timeSlot": time_slot_text,
                 "productCode": product_codes.get(pid, pid),
                 "productName": product_names.get(pid, pid),
                 "quantity": int(round(t.quantity)) if t.quantity else 0,
@@ -293,6 +336,21 @@ async def get_result(
                 "dependencyType": getattr(t, 'dependency_type', '') or '',
                 "waitTime": getattr(t, 'wait_time', 0) or 0,
                 "prepTime": getattr(t, 'prep_time', 0) or 0,
+                # 节拍计算过程变量
+                "autoType": getattr(t, 'auto_type', '') or '',
+                "cycleTime": getattr(t, 'cycle_time', 0) or 0,
+                "maxUnitsPerBeat": getattr(t, 'max_units_per_beat', 1) or 1,
+                "beatCount": getattr(t, 'beat_count', 0) or 0,
+                # V3修复: 重新计算 totalTime，确保包含 prep_time
+                "totalTime": _compute_total_time(t),
+                # V3时间信息
+                "startTime": start_time_str,
+                "endTime": end_time_str,
+                "slotCount": slot_count,
+                "isStart": True,
+                "completedQty": 0,
+                "unfinishedQty": 0,
+                "status": "待生产",
             })
         workcenter_plans.append({
             "workcenterCode": wc_id,
@@ -300,10 +358,9 @@ async def get_result(
             "cells": cells,
         })
 
-    # 构建 loadRates（按产线×工序对，使用每时段实际产能）
+    # 构建 loadRates（V3: 时间独占模式，产能=1.0/槽，负荷率=占用槽数/总可用槽数）
     load_rates = []
-    # 构建 (line_id, process_id) → hourly_capacity 映射
-    lpc_hourly_cap: dict[str, float] = {}  # key = f"{line_id}__{process_id}"
+    # 构建 (line_id, process_id) → 显示名称映射
     lpc_names: dict[str, str] = {}  # key → 显示名称
     if problem and hasattr(problem, 'line_process_configs') and problem.line_process_configs:
         line_name_map = {wc.id: getattr(wc, 'line_name', '') or getattr(wc, 'name', '') or getattr(wc, 'code', '') for wc in (getattr(problem, 'production_lines', []) or [])}
@@ -312,8 +369,6 @@ async def get_result(
             process_name_map = {pi.id: pi.proc_name for pi in problem.process_info if hasattr(pi, 'proc_name')}
         for lpc in problem.line_process_configs:
             key = f"{lpc.line_id}__{lpc.process_id}"
-            daily_cap = getattr(lpc, 'daily_capacity', 0) or 0
-            lpc_hourly_cap[key] = daily_cap / 12.0 if daily_cap > 0 else 1.0
             ln = line_name_map.get(lpc.line_id, '')
             pn = process_name_map.get(lpc.process_id, '')
             lpc_names[key] = f"{ln}-{pn}" if ln and pn else key
@@ -329,32 +384,23 @@ async def get_result(
         lpc_key = f"{line_id}__{process_id}"
         s = t.time_slot if t.time_slot else (t.slot_id if t.slot_id else (t.start_slot if t.start_slot else 0))
         ts = slot_map.get(s)
-        time_label = f"{ts.date} {ts.hour:02d}:00" if ts and hasattr(ts, 'date') and ts.date else f"Slot {s}"
+        time_label = f"{ts.date} 全天" if ts and hasattr(ts, 'date') and ts.date and ts.hour == 0 else (f"{ts.date} {ts.hour:02d}:00" if ts and hasattr(ts, 'date') and ts.date else f"Slot {s}")
         if lpc_key not in lpc_time_qty:
             lpc_time_qty[lpc_key] = {}
         lpc_time_qty[lpc_key][time_label] = lpc_time_qty[lpc_key].get(time_label, 0) + (t.quantity or 0)
 
-    # 计算负荷率 = 排产数量 / 该(产线,工序)对的小时产能
+    # V3: 负荷率 = 排产数量（时间独占模式下每个时间槽只能排一个任务，负荷率=1.0表示该时段被占用）
     for lpc_key, time_qtys in lpc_time_qty.items():
-        hourly_cap = lpc_hourly_cap.get(lpc_key, 0)
-        if hourly_cap <= 0:
-            # fallback: 从 workcenter 属性获取
-            parts = lpc_key.split("__", 1)
-            line_id = parts[0] if len(parts) > 1 else lpc_key
-            for wc in workcenters:
-                if wc.id == line_id:
-                    daily_cap = getattr(wc, 'daily_capacity', 0) or getattr(wc, 'line_capacity', 0)
-                    hourly_cap = daily_cap / 12.0 if daily_cap > 0 else 1.0
-                    break
         wc_name = lpc_names.get(lpc_key, wc_names.get(lpc_key.split("__", 1)[0], lpc_key))
         for time_label, qty in time_qtys.items():
-            load_rate = min(qty / hourly_cap, 1.0) if hourly_cap > 0 else 0
+            # V3时间独占模式：有任务即满负荷
+            load_rate = 1.0 if qty > 0 else 0.0
             load_rates.append({
                 "workcenterName": wc_name,
                 "timeSlot": time_label,
                 "loadRate": round(load_rate, 3),
                 "plannedQty": int(round(qty)),
-                "capacity": round(hourly_cap, 1),
+                "capacity": 1.0,
             })
 
     # 构建 changeovers
@@ -376,6 +422,13 @@ async def get_result(
                     "changeoverTime": 30,
                 })
 
+    # 规则评分报告（硬规则遵守性 + 软规则评分）
+    rule_report = {
+        "hard_rules": solve_result.metadata.get("hard_rules", []) if hasattr(solve_result, 'metadata') else [],
+        "hard_violations": solve_result.hard_violations if hasattr(solve_result, 'hard_violations') else 0,
+        "soft_scores": solve_result.metadata.get("soft_scores", {}) if hasattr(solve_result, 'metadata') else {},
+    }
+
     return {
         "task_id": task_id,
         "status": task_info.get("status", "UNKNOWN"),
@@ -383,6 +436,7 @@ async def get_result(
         "loadRates": load_rates,
         "changeovers": changeovers,
         "otdRate": 0.0,
+        "ruleReport": rule_report,
     }
 
 
@@ -418,6 +472,15 @@ async def adjust_plan(
 ) -> dict[str, Any]:
     """人工调整排产计划中的计划数量。"""
     return {"task_id": task_id, "adjusted": True}
+
+
+@router.post("/{task_id}/confirm", summary="确认排产结果")
+async def confirm_schedule(
+    task_id: str,
+    api_key: str = Depends(verify_api_key),
+) -> dict:
+    """确认排产结果，状态改为待生产，并自动生成报工单。"""
+    return await schedule_service.confirm_schedule(task_id)
 
 
 @router.post("/{task_id}/push", summary="手动回写 HAP")

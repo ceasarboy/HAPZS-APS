@@ -60,15 +60,46 @@ function getProcessShort(code: string): string {
   return PROCESS_SHORT[code] || code;
 }
 
-/** 将 timeSlot 字符串转为 Date
- *  支持格式: "2026-06-15 11:00-12:00" 或 "2026-06-15 11:00"
+/** 将 timeSlot 字符串转为 { start, end } Date 对象
+ *  支持格式:
+ *  - "2026-07-12 08:00 ~ 2026-07-12 20:00" → V3时间独占模式（~ 分隔）
+ *  - "2026-06-15 11:00-12:00" → 精确时间
+ *  - "2026-06-15 11:00" → 开始时间，end=start+1h
+ *  - "2026-07-12 全天" → 8:00-20:00 (12小时工作日)
+ *  - "2026-07-12" → 8:00-20:00
  */
-function parseTimeSlot(ts: string): Date {
-  const match = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
-  if (match) {
-    return new Date(`${match[1]}T${match[2]}:00`);
+function parseTimeSlotRange(ts: string): { start: Date; end: Date } {
+  // V3格式: "2026-07-12 08:00 ~ 2026-07-12 20:00" 或 "2026-07-12 08:00 ~ 2026-07-13 10:25"
+  const tildeMatch = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+  if (tildeMatch) {
+    const start = new Date(`${tildeMatch[1]}T${tildeMatch[2]}:00`);
+    const end = new Date(`${tildeMatch[3]}T${tildeMatch[4]}:00`);
+    return { start, end };
   }
-  return new Date(ts.replace(' ', 'T'));
+  // 日级: "2026-07-12 全天" 或 "2026-07-12"
+  const dailyMatch = ts.match(/^(\d{4}-\d{2}-\d{2})\s*全/) || ts.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (dailyMatch) {
+    const start = new Date(`${dailyMatch[1]}T08:00:00`);
+    const end = new Date(`${dailyMatch[1]}T20:00:00`);
+    return { start, end };
+  }
+  // 小时级: "2026-06-15 11:00-12:00"
+  const rangeMatch = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})-(\d{2}:\d{2})/);
+  if (rangeMatch) {
+    const start = new Date(`${rangeMatch[1]}T${rangeMatch[2]}:00`);
+    const end = new Date(`${rangeMatch[1]}T${rangeMatch[3]}:00`);
+    return { start, end };
+  }
+  // 单个时间: "2026-06-15 11:00"
+  const singleMatch = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+  if (singleMatch) {
+    const start = new Date(`${singleMatch[1]}T${singleMatch[2]}:00`);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    return { start, end };
+  }
+  // fallback
+  const fallback = new Date(ts.replace(' ', 'T'));
+  return { start: fallback, end: new Date(fallback.getTime() + 60 * 60 * 1000) };
 }
 
 /** 依赖类型 → 连线样式 */
@@ -129,8 +160,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ data, height = 500 }) => {
 
     workcenterPlans.forEach((wp) => {
       (wp.cells ?? []).forEach((cell) => {
-        const start = parseTimeSlot(cell.timeSlot);
-        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        const { start, end } = parseTimeSlotRange(cell.timeSlot);
         if (start.getTime() < minTime) minTime = start.getTime();
         if (end.getTime() > maxTime) maxTime = end.getTime();
         allCells.push({

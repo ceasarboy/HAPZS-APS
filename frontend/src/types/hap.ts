@@ -50,19 +50,15 @@ export interface ProcessInfoItem {
   proc_name: string;
   /** 约束类型 */
   constraint_type: string;
-  /** 标准节拍(秒) */
-  cycle_time: number;
-  /** 换型时间(分钟) */
-  setup_time: number;
-  /** 等待时间(分钟) */
-  wait_time: number;
-  /** 等待时间是否计入下班时间 */
-  wait_includes_offhours: string;
-  /** 准备时间(分钟) */
-  prep_time: number;
+  /** 工序类型 */
+  proc_type: string;
+  /** 是否质检点 */
+  is_qc_point: string;
+  /** 状态 */
+  status: string;
 }
 
-/** 产品工艺条目（V2） */
+/** 产品工艺条目（V3） */
 export interface ProductProcessItem {
   /** 记录ID */
   id: string;
@@ -72,12 +68,24 @@ export interface ProductProcessItem {
   process_id: string;
   /** 工序顺序 */
   seq: number;
-  /** 标准工时(秒) */
-  std_time: number;
+  /** 工艺类型：自动/非自动 */
+  auto_type: string;
+  /** 节拍时间(秒) */
+  cycle_time: number;
+  /** 单节拍最大数量 */
+  max_units_per_beat: number;
+  /** 准备时间(分钟) */
+  prep_time: number;
+  /** 等待时间(分钟) */
+  wait_time: number;
+  /** 等待时间是否计入下班时间 */
+  wait_includes_offhours: string;
   /** 依赖类型：FS/SS/FF/SF */
   dependency_type: string;
   /** 是否关键工序 */
   is_key: string;
+  /** 备注 */
+  remark: string;
 }
 
 /** 订单条目（V1 兼容） */

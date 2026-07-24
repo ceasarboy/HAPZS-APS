@@ -108,29 +108,20 @@ class ProductionLine:
     line_code: str = ""
     line_name: str = ""
     line_type: str = "主产线"  # 主产线/辅助线/特种线/灵活线
-    daily_capacity: int = 0
     line_load: float = 0.0
-    efficiency: float = 100.0
     location: str = ""
     status: str = "运行中"
-    # 兼容旧字段
-    hourly_capacity: int = 0  # = daily_capacity // 12
     is_bottleneck: bool = False
     compatible_products: list[str] = field(default_factory=list)
     # 兼容 WorkCenter 属性名
     code: str = ""
     name: str = ""
-    oee: float = 1.0
 
     def __post_init__(self) -> None:
-        if self.daily_capacity and not self.hourly_capacity:
-            self.hourly_capacity = self.daily_capacity // 12
         if not self.code:
             self.code = self.line_code
         if not self.name:
             self.name = self.line_name
-        if not self.oee or self.oee == 1.0:
-            self.oee = self.efficiency / 100.0
 
 
 @dataclass
@@ -153,9 +144,6 @@ class ProductionLineInfo:
     """产线信息（V2，求解器用，替代 WorkcenterInfo）。"""
     id: str
     name: str = ""
-    daily_capacity: int = 0
-    hourly_capacity: int = 0
-    efficiency: float = 100.0
 
 
 @dataclass
@@ -249,11 +237,6 @@ class ProcessInfo:
     proc_name: str = ""
     proc_type: str = ""  # 成型/焊接/处理/组装/检测
     constraint_type: str = ""  # 机时约束/人员工时约束
-    cycle_time: float = 0.0  # 标准节拍(秒)
-    setup_time: float = 0.0  # 换型时间(分钟)
-    wait_time: float = 0.0  # 等待时间(分钟)
-    wait_includes_offhours: bool = True  # 等待时间是否计入下班时间（自然等待=True，工作时间等待=False）
-    prep_time: float = 0.0  # 准备时间(分钟)
     is_qc_point: bool = False  # 是否质检点
     status: str = "启用"
 
@@ -265,8 +248,13 @@ class ProductProcess:
     product_id: str = ""  # 关联产品 rowId
     process_id: str = ""  # 关联工序 rowId
     seq: int = 0  # 工序顺序（同 seq 值的工序互为并行）
-    std_time: float = 0.0  # 标准工时(秒)
+    auto_type: str = "非自动"  # 工艺类型：自动/非自动
+    cycle_time: float = 0.0  # 节拍时间(秒)
+    max_units_per_beat: int = 1  # 单节拍最大数量（自动工艺用，如治具数）
+    prep_time: float = 0.0  # 准备时间(分钟)
+    wait_time: float = 0.0  # 等待时间(分钟)
     dependency_type: str = "FS"  # 依赖类型：FS/SS/FF/SF
+    wait_includes_offhours: bool = False  # 下班时间是否可计入等待时间
     is_key: bool = False  # 是否关键工序
     remark: str = ""
 
@@ -290,11 +278,10 @@ class ProcessDependency:
 class LineProcessConfig:
     """产线工艺配置（V2 新增）。"""
     id: str = ""
+    lpc_code: str = ""  # 独立编号
     line_id: str = ""  # 关联产线 rowId
     process_id: str = ""  # 关联工序 rowId
-    daily_capacity: int = 0
-    efficiency: float = 100.0
-    min_batch: int = 0
+    auto_type: str = "非自动"  # 工艺类型：自动/非自动
     is_bottleneck: bool = False
     equipment_count: int = 0
     worker_count: int = 0
@@ -365,6 +352,7 @@ class DemandPlan:
     scheduled_qty: int = 0
     compatible_workcenters: list[str] = field(default_factory=list)
     process_route: list[ProductProcess] = field(default_factory=list)
+    is_carryover: bool = False
 
     def __post_init__(self):
         if not self.product and self.product_id:
@@ -373,10 +361,20 @@ class DemandPlan:
 
 @dataclass
 class ChangeoverMatrix:
-    """换线矩阵。"""
+    """换线矩阵。
+
+    V3: 同时支持产品维度和产线工艺配置(LPC)维度的换线时间。
+    - 产品维度: from_product_id / to_product_id
+    - LPC维度: from_lpc_id / to_lpc_id（指向 LineProcessConfig.id）
+    - setup_time 为换线时间（分钟），changeover_time 为兼容别名
+    """
     from_product_id: str = ""
     to_product_id: str = ""
-    changeover_time: float = 0.0
+    from_lpc_id: str = ""
+    to_lpc_id: str = ""
+    changeover_type: str = "产品换线"
+    setup_time: float = 0.0       # 换线时间（分钟）
+    changeover_time: float = 0.0  # 兼容别名 = setup_time
     changeover_cost: float = 0.0
     similarity_score: float = 1.0
 
@@ -566,6 +564,16 @@ class ScheduledTask:
     dependency_type: str = ""  # 依赖类型：FS/SS/FF/SF
     wait_time: float = 0.0  # 等待时间(分钟)
     prep_time: float = 0.0  # 准备时间(分钟)
+    # V3 节拍计算过程变量
+    auto_type: str = ""  # 工艺类型：自动/非自动
+    cycle_time: float = 0.0  # 节拍时间(秒)
+    max_units_per_beat: int = 1  # 单节拍最大数量
+    beat_count: int = 0  # 节拍数量
+    total_time: float = 0.0  # 总工时(秒) = beat_count * cycle_time
+    # V3 规则评分用字段
+    demand_id: str = ""  # 关联需求ID
+    due_date: str = ""  # 交期日期
+    slot_count: int = 0  # 占用时间槽数量
     # 兼容字段（solver_ga / benchmark / evaluator 使用）
     item_id: str = ""
     time_slot: int = 0

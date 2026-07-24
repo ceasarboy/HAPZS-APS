@@ -359,6 +359,50 @@ const Schedule: React.FC = () => {
                     label: '负荷率分析',
                     children: <LoadChart loadRates={result.loadRates} />,
                   },
+                  {
+                    key: 'rules',
+                    label: '规则评分',
+                    children: result.ruleReport ? (
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1E3A8A', marginBottom: 12 }}>
+                          硬规则遵守性
+                          {result.ruleReport.hard_violations === 0 ? (
+                            <Tag color="green" style={{ marginLeft: 8 }}>全部通过</Tag>
+                          ) : (
+                            <Tag color="red" style={{ marginLeft: 8 }}>{result.ruleReport.hard_violations} 项违反</Tag>
+                          )}
+                        </div>
+                        <Descriptions bordered column={1} size="small" style={{ marginBottom: 24 }}>
+                          {result.ruleReport.hard_rules.map((rule) => (
+                            <Descriptions.Item key={rule.code} label={rule.name}>
+                              <Tag color={rule.status === 'PASS' ? 'green' : 'red'} style={{ marginRight: 8 }}>
+                                {rule.status}
+                              </Tag>
+                              <span style={{ fontSize: 12, color: '#666' }}>{rule.detail}</span>
+                            </Descriptions.Item>
+                          ))}
+                        </Descriptions>
+
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1E3A8A', marginBottom: 12 }}>
+                          软规则评分
+                        </div>
+                        <Descriptions bordered column={1} size="small">
+                          {Object.entries(result.ruleReport.soft_scores).map(([code, score]) => (
+                            <Descriptions.Item key={code} label={`${score.name} (权重 ${score.weight})`}>
+                              <span style={{ fontFamily: "'Fira Code', monospace", fontWeight: 600, color: score.score >= 0.8 ? '#52c41a' : score.score >= 0.5 ? '#faad14' : '#ff4d4f' }}>
+                                {(score.score * 100).toFixed(1)}%
+                              </span>
+                              <span style={{ fontSize: 12, color: '#666', marginLeft: 12 }}>{score.detail}</span>
+                            </Descriptions.Item>
+                          ))}
+                        </Descriptions>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                        该求解器未提供规则评分信息
+                      </div>
+                    ),
+                  },
                 ]}
               />
             </div>

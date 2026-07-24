@@ -81,6 +81,115 @@ class HAPClient:
             logger.info("获取工作表 {} 结构成功", worksheet_id)
             return data
 
+    async def update_worksheet_structure(
+        self,
+        worksheet_id: str,
+        worksheet_name: str,
+        add_fields: list[dict[str, Any]] | None = None,
+        edit_fields: list[dict[str, Any]] | None = None,
+        remove_fields: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """更新工作表结构（增删改字段）。
+
+        HAP V3 API：PUT /v3/app/worksheets/{worksheetId}
+        - name（工作表名称）为必填字段
+        - addFields: 新增字段数组，options 需要 index 字段
+        - editFields: 修改字段数组
+        - removeFields: 删除字段 ID 数组
+
+        HAP 字段类型代码：
+        - Text: 2
+        - Number: 6
+        - Checkbox: 4
+        - SingleSelect: 10
+        - Date: 5
+        - DateTime: 6
+        - Relation: 8
+
+        Args:
+            worksheet_id: 工作表 ID
+            worksheet_name: 工作表名称（必填）
+            add_fields: 新增字段列表
+            edit_fields: 修改字段列表
+            remove_fields: 要删除的字段 ID 列表
+
+        Returns:
+            dict: 更新结果
+        """
+        payload: dict[str, Any] = {
+            "appId": self.app_id,
+            "worksheetId": worksheet_id,
+            "name": worksheet_name,
+        }
+        if add_fields:
+            payload["addFields"] = add_fields
+        if edit_fields:
+            payload["editFields"] = edit_fields
+        if remove_fields:
+            payload["removeFields"] = remove_fields
+
+        async with self._get_client() as client:
+            # HAP V3 SaaS：POST + addFields；私有部署可能支持 PUT
+            response = await client.put(
+                f"/v3/app/worksheets/{worksheet_id}", json=payload,
+            )
+            if response.status_code == 405:
+                # SaaS 不支持 PUT，改用 POST
+                logger.warning("PUT 方法不被支持（405），改用 POST + addFields")
+                response = await client.post(
+                    f"/v3/app/worksheets/{worksheet_id}", json=payload,
+                )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(
+                "更新工作表结构成功: {} (add={}, edit={}, remove={})",
+                worksheet_id,
+                len(add_fields or []),
+                len(edit_fields or []),
+                len(remove_fields or []),
+            )
+            return data
+
+    async def add_field(
+        self,
+        worksheet_id: str,
+        field_name: str,
+        field_alias: str,
+        field_type: int,
+        options: list[dict[str, str]] | None = None,
+        worksheet_name: str = "工作表",
+    ) -> dict[str, Any]:
+        """向工作表添加单个字段（便捷方法，底层调用 update_worksheet_structure）。
+
+        Args:
+            worksheet_id: 工作表 ID
+            field_name: 字段名称
+            field_alias: 字段别名
+            field_type: 字段类型代码
+            options: 选项字段选项列表 [{"value": "选项1"}, ...]
+            worksheet_name: 工作表名称（HAP V3 API 必填）
+
+        Returns:
+            dict: 添加结果
+        """
+        field_def: dict[str, Any] = {
+            "name": field_name,
+            "alias": field_alias,
+            "type": field_type,
+        }
+        if options:
+            # HAP V3 要求 options 中包含 index 字段
+            field_def["options"] = [
+                {"value": opt["value"], "index": str(idx)}
+                for idx, opt in enumerate(options)
+            ]
+
+        return await self.update_worksheet_structure(
+            worksheet_id=worksheet_id,
+            worksheet_name=worksheet_name,
+            add_fields=[field_def],
+        )
+
     async def get_rows(
         self,
         worksheet_id: str,
@@ -121,6 +230,23 @@ class HAPClient:
             logger.info("获取工作表 {} 行数据，本页 {} 条，共 {} 条", worksheet_id, len(rows), total)
             return data
 
+    @staticmethod
+    def _normalize_fields(fields: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """将 fields 统一转换为 HAP V3 要求的数组格式。
+
+        HAP V3 API 要求 fields 为 JSON 数组：[{"id": controlId, "value": value}, ...]
+        旧代码传入字典格式 {controlId: value} 会导致反序列化失败。
+
+        Args:
+            fields: 字段数据，支持字典或数组格式
+
+        Returns:
+            list: 标准化的字段数组
+        """
+        if isinstance(fields, dict):
+            return [{"id": k, "value": v} for k, v in fields.items() if v is not None]
+        return fields or []
+
     async def create_row(
         self,
         worksheet_id: str,
@@ -132,7 +258,7 @@ class HAPClient:
         注意：选项字段需传入 key 值而非显示值。
         fields 支持两种格式：
         - 数组格式 [{"id": fieldId, "value": ...}]（推荐，HAP V3 标准）
-        - 字典格式 {fieldId: value}（兼容旧调用）
+        - 字典格式 {fieldId: value}（兼容旧调用，会自动转换为数组格式）
 
         Args:
             worksheet_id: 工作表 ID
@@ -142,14 +268,17 @@ class HAPClient:
         Returns:
             dict: 创建结果，包含新行 rowid
         """
+        normalized_fields = self._normalize_fields(fields)
         payload = {
-            "fields": fields,
+            "fields": normalized_fields,
             "triggerWorkflow": trigger_workflow,
         }
         async with self._get_client() as client:
             response = await client.post(f"/v3/app/worksheets/{worksheet_id}/rows", json=payload)
             response.raise_for_status()
             data = response.json()
+            if not data.get("success", True):
+                logger.error("创建行失败: {}", data.get("error_msg", ""))
             # HAP V3 返回格式: {"data": {"id": "row_id"}, "success": true}
             rowid = data.get("data", {})
             if isinstance(rowid, dict):
@@ -166,6 +295,7 @@ class HAPClient:
         """批量创建行数据。
 
         注意：选项字段需传入 key 值而非显示值。
+        rows 中每项的 fields 支持字典或数组格式，会自动转换为数组格式。
 
         Args:
             worksheet_id: 工作表 ID
@@ -175,8 +305,12 @@ class HAPClient:
         Returns:
             dict: 批量创建结果
         """
+        normalized_rows = [
+            {**r, "fields": self._normalize_fields(r.get("fields", {}))}
+            for r in rows
+        ]
         payload = {
-            "rows": rows,
+            "rows": normalized_rows,
             "triggerWorkflow": trigger_workflow,
         }
         async with self._get_client() as client:
@@ -209,7 +343,7 @@ class HAPClient:
             dict: 更新结果
         """
         payload = {
-            "fields": fields,
+            "fields": self._normalize_fields(fields),
             "triggerWorkflow": trigger_workflow,
         }
         async with self._get_client() as client:
@@ -242,7 +376,7 @@ class HAPClient:
         """
         payload = {
             "rowIds": row_ids,
-            "fields": fields,
+            "fields": self._normalize_fields(fields),
             "triggerWorkflow": trigger_workflow,
         }
         async with self._get_client() as client:

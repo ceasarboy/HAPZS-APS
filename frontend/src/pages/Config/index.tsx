@@ -7,7 +7,7 @@ import type { HardRule, SoftRule } from '../../types/schedule';
 
 /** 硬规则选项 */
 const hardRuleOptions: { label: string; value: HardRule }[] = [
-  { label: '有限产能', value: 'FINITE_CAPACITY' },
+  { label: '有限时间', value: 'FINITE_CAPACITY' },
   { label: '工序顺序', value: 'PROCESS_ORDER' },
   { label: '资源兼容性', value: 'RESOURCE_COMPATIBILITY' },
 ];
@@ -155,7 +155,7 @@ const Config: React.FC = () => {
             solver_type: 'ortools',
             hard_rules: ['FINITE_CAPACITY', 'PROCESS_ORDER', 'RESOURCE_COMPATIBILITY'],
             soft_rules: ['OTD_PRIORITY', 'SETUP_MINIMIZATION', 'LOAD_BALANCING'],
-            soft_rule_weights: { OTD_PRIORITY: 0.35, SETUP_MINIMIZATION: 0.25, LOAD_BALANCING: 0.15 },
+            soft_rule_weights: { OTD_PRIORITY: 0.20, SETUP_MINIMIZATION: 0.10, LOAD_BALANCING: 0.50, DRUM_UTILIZATION: 0.10 },
           }}
           style={{ maxWidth: 800 }}
         >

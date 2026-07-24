@@ -5,6 +5,7 @@ V2 工序级排产：每个(需求, 工序)对作为独立排产项，每个(产
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,8 +47,15 @@ class ExpandedItem:
     process_name: str = ""
     constraint_type: str = ""
     dependency_type: str = "FS"  # 依赖类型：FS/SS/FF/SF
+    auto_type: str = "非自动"  # 工艺类型：自动/非自动
+    cycle_time: float = 0.0     # 节拍时间(秒) — 从 ProductProcess 获取
+    max_units_per_beat: int = 1  # 单节拍最大数量 — 从 ProductProcess 获取
     wait_time: float = 0.0  # 等待时间(分钟)
     prep_time: float = 0.0  # 准备时间(分钟)
+    # V3 时间独占模式
+    beat_count: int = 0         # 节拍数
+    total_time_seconds: float = 0.0  # 总加工时间(秒)
+    slots_needed: int = 1       # 需要占用的连续5分钟时间槽数
 
 
 @dataclass
@@ -58,10 +66,12 @@ class VirtualWorkcenter:
     process_id: str       # 工序 ID
     line_name: str = ""
     process_name: str = ""
-    daily_capacity: int = 0
-    hourly_capacity: float = 0.0  # = daily_capacity / 12 或从资源日历计算
-    efficiency: float = 100.0
+    lpc_id: str = ""      # 产线工艺配置 ID（用于换线矩阵查找）
+    lpc_code: str = ""    # 产线工艺配置编号
+    auto_type: str = "非自动"
     is_bottleneck: bool = False
+    equipment_count: int = 1  # V3: 设备数（用于计算并行度和Cumulative约束容量）
+    worker_count: int = 0     # 人员数
 
 
 @dataclass
@@ -87,6 +97,9 @@ class BuiltConstraints:
 
     # 换线矩阵: changeover_time[(from_product, to_product)]
     changeover_time: dict[tuple[str, str], float] = field(default_factory=dict)
+
+    # V3 LPC 换线矩阵: changeover_time_lpc[(from_lpc_id, to_lpc_id)]
+    changeover_time_lpc: dict[tuple[str, str], float] = field(default_factory=dict)
 
     # 优先级权重
     priority_weights: dict[int, float] = field(default_factory=dict)
@@ -171,10 +184,12 @@ class ConstraintBuilder:
                 process_id=lpc.process_id,
                 line_name=line.line_name if line else "",
                 process_name=pi.proc_name if pi else "",
-                daily_capacity=lpc.daily_capacity,
-                hourly_capacity=round(lpc.daily_capacity / 12.0, 1) if lpc.daily_capacity > 0 else 0.0,
-                efficiency=lpc.efficiency,
+                lpc_id=lpc.id,
+                lpc_code=lpc.lpc_code or "",
+                auto_type=lpc.auto_type,
                 is_bottleneck=lpc.is_bottleneck,
+                equipment_count=lpc.equipment_count or 1,
+                worker_count=lpc.worker_count or 0,
             )
             virtual_wcs.append(vwc)
 
@@ -204,49 +219,58 @@ class ConstraintBuilder:
 
         # 时间槽数量（用于计算延迟槽位数）
         n_time_slots = len(time_slots)
-        # 每个时间槽代表1小时
-        SLOT_DURATION_MINUTES = 60
+        # 根据时间槽粒度推断每个时间槽的时长
+        # 如果同一 (date, workcenter_id, process_id) 只有一个时间槽，则为日级（720分钟）
+        # 否则为小时级（60分钟）
+        _slot_keys = set()
+        for ts in time_slots[:100]:  # 采样前100个判断
+            _slot_keys.add((ts.date, ts.workcenter_id, ts.process_id))
+        if len(time_slots) > 0 and len(_slot_keys) == len(time_slots[:100]):
+            SLOT_DURATION_MINUTES = 720  # 日级时间槽，12小时/天
+        else:
+            SLOT_DURATION_MINUTES = 60   # 小时级时间槽
 
         # 计算延迟时间槽数和延迟分钟数的辅助函数
         def _calc_delay_slots(
             dep_type: str,
-            pred_process: ProcessInfo | None,
-            succ_process: ProcessInfo | None,
+            pred_pp: ProductProcess | None,
+            succ_pp: ProductProcess | None,
         ) -> tuple[int, float]:
             """根据依赖类型计算延迟时间槽数和延迟分钟数。
 
-            FS: delay = 前工序wait_time + 后工序prep_time + 前工序setup_time
+            FS: delay = 前工序wait_time + 后工序prep_time
             SS: delay = 后工序prep_time（后工序需先准备才能开始）
             FF: delay = 0（自动对齐结束时间）
             SF: delay = 0（自动对齐）
 
+            注意: wait_time/prep_time/wait_includes_offhours 从 ProductProcess 获取。
+
             Returns: (delay_slots, delay_minutes)
+
+            注意: prep_time 已计入生产时间内（自动工艺每轮换治具，非自动工艺一次性准备），
+            此处延迟只算 wait_time（工序间等待，如冷却/固化）。
             """
             if dep_type == "FS":
-                wait_time = pred_process.wait_time if pred_process else 0
-                prep_time = succ_process.prep_time if succ_process else 0
-                setup_time = pred_process.setup_time if pred_process else 0
-                total_minutes = wait_time + prep_time + setup_time
-                if total_minutes <= 0:
-                    return (1, 60)  # FS 最少延迟1个时间槽
-                delay_minutes = total_minutes
-                if pred_process and not pred_process.wait_includes_offhours:
+                wait_time = pred_pp.wait_time if pred_pp else 0
+                if wait_time <= 0:
+                    # V3修复: wait_time=0 时 delay_minutes=0（V3路径的工序顺序约束已确保顺序）
+                    # delay_slots=1 保留给 GA 求解器（确保后继比前驱晚至少1个时间槽）
+                    return (1, 0)
+                delay_minutes = wait_time
+                if pred_pp and not pred_pp.wait_includes_offhours:
                     # 只算工作时间（8:00-20:00 = 12小时/天）
                     work_hours_per_day = 12
                     work_minutes_per_day = work_hours_per_day * SLOT_DURATION_MINUTES
-                    days = int(total_minutes // work_minutes_per_day)
-                    remaining = total_minutes % work_minutes_per_day
+                    days = int(wait_time // work_minutes_per_day)
+                    remaining = wait_time % work_minutes_per_day
                     slots = days * work_hours_per_day + int(remaining + SLOT_DURATION_MINUTES - 1) // SLOT_DURATION_MINUTES
                 else:
-                    # 自然时间，每个时间槽1小时
-                    slots = int(total_minutes + SLOT_DURATION_MINUTES - 1) // SLOT_DURATION_MINUTES
+                    # 自然时间
+                    slots = int(wait_time + SLOT_DURATION_MINUTES - 1) // SLOT_DURATION_MINUTES
                 return (max(slots, 1), delay_minutes)
             elif dep_type == "SS":
-                prep_time = succ_process.prep_time if succ_process else 0
-                if prep_time > 0:
-                    slots = int(prep_time + SLOT_DURATION_MINUTES - 1) // SLOT_DURATION_MINUTES
-                    return (slots, prep_time)
-                return (0, 0)  # SS 可以同时开始
+                # SS: 后工序可在前工序开始后开始，prep_time已在生产时间内
+                return (0, 0)
             elif dep_type == "FF":
                 return (0, 0)
             elif dep_type == "SF":
@@ -291,9 +315,27 @@ class ConstraintBuilder:
                     process_name=pi.proc_name if pi else "",
                     constraint_type=pi.constraint_type if pi else "",
                     dependency_type=pp.dependency_type or "FS",
-                    wait_time=pi.wait_time if pi else 0,
-                    prep_time=pi.prep_time if pi else 0,
+                    auto_type=pp.auto_type or "非自动",
+                    cycle_time=pp.cycle_time if pp.cycle_time else 0.0,
+                    max_units_per_beat=pp.max_units_per_beat if pp.max_units_per_beat else 1,
+                    wait_time=pp.wait_time if pp.wait_time else 0,
+                    prep_time=pp.prep_time if pp.prep_time else 0,
                 )
+                # V3: 计算节拍数和占用时间槽数
+                qty = int(ei.quantity)
+                if ei.auto_type == "自动" and ei.max_units_per_beat > 0:
+                    ei.beat_count = math.ceil(qty / ei.max_units_per_beat)
+                else:
+                    ei.beat_count = qty
+                # 自动工艺: 每轮 = cycle_time + prep_time(换治具, 分钟转秒)
+                # 非自动工艺: 总时间 = beat_count * cycle_time + prep_time * 60 (一次性准备)
+                if ei.auto_type == "自动":
+                    ei.total_time_seconds = ei.beat_count * (ei.cycle_time + ei.prep_time * 60)
+                else:
+                    ei.total_time_seconds = ei.beat_count * ei.cycle_time + ei.prep_time * 60
+                total_minutes = ei.total_time_seconds / 60.0
+                SLOT_DURATION = 5  # 5分钟/槽
+                ei.slots_needed = max(1, math.ceil(total_minutes / SLOT_DURATION))
                 expanded_idx = len(expanded_items_list)
                 expanded_items_list.append(ei)
                 group.append((expanded_idx, pp.seq))
@@ -312,6 +354,8 @@ class ConstraintBuilder:
 
             if has_explicit:
                 # 使用显式依赖
+                # 构建 process_id → ProductProcess 映射
+                pp_by_pid = {pp.process_id: pp for pp in pp_list}
                 for pp in pp_list:
                     to_idx = proc_to_idx.get(pp.process_id)
                     if to_idx is None:
@@ -322,17 +366,18 @@ class ConstraintBuilder:
                         process_predecessors[to_idx] = preds
                         # 计算依赖详情
                         dep_type = pp.dependency_type or "FS"
-                        succ_pi = process_info_map.get(pp.process_id)
                         dep_details = []
                         for pred_idx in preds:
                             pred_ei = expanded_items_list[pred_idx]
-                            pred_pi = process_info_map.get(pred_ei.process_id)
-                            delay_slots, delay_minutes = _calc_delay_slots(dep_type, pred_pi, succ_pi)
+                            pred_pp = pp_by_pid.get(pred_ei.process_id)
+                            delay_slots, delay_minutes = _calc_delay_slots(dep_type, pred_pp, pp)
                             dep_details.append((pred_idx, dep_type, delay_slots, delay_minutes))
                         process_dependency_info[to_idx] = dep_details
             else:
                 # 从 seq 自动推导：seq=N 的前驱是 seq=N-1 的所有工序
                 sorted_seqs = sorted(seq_to_indices.keys())
+                # 构建 process_id → ProductProcess 映射
+                pp_by_pid = {pp.process_id: pp for pp in pp_list}
                 for seq_idx in range(1, len(sorted_seqs)):
                     prev_seq = sorted_seqs[seq_idx - 1]
                     curr_seq = sorted_seqs[seq_idx]
@@ -343,12 +388,11 @@ class ConstraintBuilder:
                         # 计算依赖详情：同 seq 并行用 SS，不同 seq 串行用 FS
                         curr_pp = next((p for p in pp_list if proc_to_idx.get(p.process_id) == curr_ei_idx), None)
                         dep_type = curr_pp.dependency_type if curr_pp and curr_pp.dependency_type else "FS"
-                        succ_pi = process_info_map.get(curr_pp.process_id) if curr_pp else None
                         dep_details = []
                         for pred_idx in prev_indices:
                             pred_ei = expanded_items_list[pred_idx]
-                            pred_pi = process_info_map.get(pred_ei.process_id)
-                            delay_slots, delay_minutes = _calc_delay_slots(dep_type, pred_pi, succ_pi)
+                            pred_pp = pp_by_pid.get(pred_ei.process_id)
+                            delay_slots, delay_minutes = _calc_delay_slots(dep_type, pred_pp, curr_pp)
                             dep_details.append((pred_idx, dep_type, delay_slots, delay_minutes))
                         process_dependency_info[curr_ei_idx] = dep_details
 
@@ -391,31 +435,28 @@ class ConstraintBuilder:
 
         if slots_with_process > 0:
             # 有 process_id 的时段：直接映射到虚拟工作中心
+            vwc_key_misses = 0
             for ts in time_slots:
                 t = ts.index or ts.slot_id or 0
                 if ts.process_id:
                     vwc_key = f"{ts.workcenter_id}__{ts.process_id}"
                     if vwc_key not in workcenter_indices:
+                        vwc_key_misses += 1
                         continue
                     w = workcenter_indices[vwc_key]
                     cap = ts.available_capacity
                     if cap > 0:
                         capacity.setdefault(w, {})[t] = cap
+            if vwc_key_misses > 0:
+                logger.warning("VWC key未匹配: {}/{} 个时段", vwc_key_misses, slots_with_process)
         else:
-            # 没有 process_id 的时段：按产线分配给该产线的所有虚拟工作中心
-            # 每个虚拟工作中心按其 LineProcessConfig 的产能占比分配
-            # 先构建 line_id → [vwc_index] 映射
+            # 没有 process_id 的时段：按产线均分给该产线的所有虚拟工作中心
+            # V3时间独占模式：产能=1.0（每个时间槽只能被一个任务占用）
             line_vwcs: dict[str, list[int]] = {}
             for vwc in virtual_wcs:
                 line_vwcs.setdefault(vwc.line_id, []).append(
                     workcenter_indices[vwc.key]
                 )
-
-            # 构建 line_id → total_daily_capacity 映射
-            line_total_cap: dict[str, float] = {}
-            for vwc in virtual_wcs:
-                line_total_cap.setdefault(vwc.line_id, 0)
-                line_total_cap[vwc.line_id] += vwc.daily_capacity * (vwc.efficiency / 100.0)
 
             for ts in time_slots:
                 t = ts.index or ts.slot_id or 0
@@ -426,29 +467,21 @@ class ConstraintBuilder:
                 if cap <= 0:
                     continue
 
-                # 按产能占比分配给该产线的各虚拟工作中心
-                total_cap = line_total_cap.get(line_id, 0)
-                if total_cap <= 0:
-                    continue
+                # V3: 均分给该产线的各虚拟工作中心
+                n = len(line_vwcs[line_id])
+                if n > 0:
+                    for w in line_vwcs[line_id]:
+                        capacity.setdefault(w, {})[t] = cap / n
 
-                for w in line_vwcs[line_id]:
-                    vwc = virtual_wcs_map[w]
-                    vwc_share = (vwc.daily_capacity * (vwc.efficiency / 100.0)) / total_cap
-                    allocated_cap = cap * vwc_share
-                    if allocated_cap > 0:
-                        capacity.setdefault(w, {})[t] = allocated_cap
-
-        # 如果产能仍为空，从 LineProcessConfig 推算
+        # 如果产能仍为空，V3时间独占模式默认产能=1.0
         if not capacity:
             for vwc in virtual_wcs:
                 w = workcenter_indices[vwc.key]
-                hourly_cap = vwc.daily_capacity * (vwc.efficiency / 100.0) / 12.0
-                if hourly_cap > 0:
-                    for t in time_indices:
-                        capacity.setdefault(w, {})[t] = hourly_cap
+                for t in time_indices:
+                    capacity.setdefault(w, {})[t] = 1.0
 
         # ── 5. 资源兼容: incompatible[expanded_i][vwc_w] ──
-        # 展开项只能分配到匹配其工序的虚拟工作中心
+        # 展开项只能分配到匹配其工序+工艺类型的虚拟工作中心
         incompatible: dict[int, dict[int, bool]] = {}
         for ei in expanded_items_list:
             i = item_indices[ei.key]
@@ -457,8 +490,10 @@ class ConstraintBuilder:
                 # 工序必须匹配
                 if ei.process_id and vwc.process_id != ei.process_id:
                     incompatible.setdefault(i, {})[w] = True
+                # 工艺类型必须匹配（自动/非自动）
+                elif ei.auto_type and vwc.auto_type and ei.auto_type != vwc.auto_type:
+                    incompatible.setdefault(i, {})[w] = True
                 # 如果展开项没有工序（无工艺路线的需求），允许所有虚拟工作中心
-                # （保持向后兼容）
 
         # ── 6. 物料齐套 ──
         material_not_ready: dict[int, dict[int, bool]] = {}
@@ -487,13 +522,24 @@ class ConstraintBuilder:
                     )
 
         # ── 8. 换线矩阵 ──
+        # V3: 同时构建产品维度和 LPC 维度的换线时间查找表
         changeover_time: dict[tuple[str, str], float] = {}
+        changeover_time_lpc: dict[tuple[str, str], float] = {}
         for entry in problem.changeover_matrix:
             from_p = entry.from_product_id or ""
             to_p = entry.to_product_id or ""
-            changeover_time[(from_p, to_p)] = entry.changeover_time
+            if from_p and to_p:
+                changeover_time[(from_p, to_p)] = entry.changeover_time or entry.setup_time
+            from_lpc = entry.from_lpc_id or ""
+            to_lpc = entry.to_lpc_id or ""
+            if from_lpc and to_lpc:
+                changeover_time_lpc[(from_lpc, to_lpc)] = entry.changeover_time or entry.setup_time
         for rule in problem.changeover_rules:
             changeover_time[(rule.from_product, rule.to_product)] = rule.changeover_hours
+        logger.info(
+            "换线矩阵: 产品维度={} 条, LPC维度={} 条",
+            len(changeover_time), len(changeover_time_lpc),
+        )
 
         # ── 9. 优先级 / 交期 / 需求 / 产品 ──
         priority_weights: dict[int, float] = {}
@@ -522,9 +568,9 @@ class ConstraintBuilder:
 
         # ── 11. 目标权重 ──
         objective_weights: dict[str, float] = {
-            SoftRule.OTD_PRIORITY.value: 0.35,
-            SoftRule.SETUP_MINIMIZATION.value: 0.25,
-            SoftRule.LOAD_BALANCING.value: 0.15,
+            SoftRule.OTD_PRIORITY.value: 0.20,
+            SoftRule.SETUP_MINIMIZATION.value: 0.10,
+            SoftRule.LOAD_BALANCING.value: 0.50,
             SoftRule.DRUM_UTILIZATION.value: 0.10,
         }
         for rule, weight in problem.objective_weights.items():
@@ -546,6 +592,7 @@ class ConstraintBuilder:
             incompatible=incompatible,
             fixed=fixed,
             changeover_time=changeover_time,
+            changeover_time_lpc=changeover_time_lpc,
             priority_weights=priority_weights,
             due_dates=due_dates,
             demands=demands,

@@ -25,3 +25,8 @@ export function pushToHap(taskId: string) {
 export function getLatestResult() {
   return apiClient.get<ScheduleResult>('/result/latest');
 }
+
+/** 确认排产 */
+export function confirmSchedule(taskId: string) {
+  return apiClient.post<{ message: string }>(`/result/${taskId}/confirm`);
+}

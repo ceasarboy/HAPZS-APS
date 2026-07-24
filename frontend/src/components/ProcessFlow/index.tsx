@@ -112,15 +112,23 @@ export default function ProcessFlow({ height = 625 }: ProcessFlowProps) {
         const proc = processMap.get(pp.process_id);
         if (!proc) return;
         const isMachine = proc.constraint_type === '机时约束';
-        // 参数行
-        const paramParts = [`节拍${proc.cycle_time}s`, `换型${proc.setup_time}min`];
-        if (proc.wait_time > 0) paramParts.push(`等待${proc.wait_time}min`);
-        if (proc.prep_time > 0) paramParts.push(`准备${proc.prep_time}min`);
+        const isAuto = pp.auto_type === '自动';
+        // V3: 工艺参数从 ProductProcess 获取（已从 ProcessInfo 迁移）
+        const paramParts = [`节拍${pp.cycle_time}s`];
+        if (pp.max_units_per_beat > 1) paramParts.push(`单节拍${pp.max_units_per_beat}`);
+        if (pp.prep_time > 0) paramParts.push(`准备${pp.prep_time}min`);
+        if (pp.wait_time > 0) paramParts.push(`等待${pp.wait_time}min`);
         const paramLine = paramParts.join(' · ');
+
+        // 节点标签：工序名 + 约束类型 + 工艺类型 + 参数行
+        const typeLine = `${proc.constraint_type} · ${isAuto ? '自动' : '非自动'}`;
 
         nodes.push({
           name: pp.process_id,
-          value: { ...proc, dependency_type: pp.dependency_type },
+          value: {
+            ...proc,
+            ...pp,
+          },
           x: startX + seqIdx * xSpacing,
           y: centerY + yOffset + i * ySpacing,
           symbolSize: [130, 72],
@@ -133,7 +141,7 @@ export default function ProcessFlow({ height = 625 }: ProcessFlowProps) {
           },
           label: {
             show: true,
-            formatter: `{name|${proc.proc_name}}\n{type|${proc.constraint_type}}\n{param|${paramLine}}`,
+            formatter: `{name|${proc.proc_name}}\n{type|${typeLine}}\n{param|${paramLine}}`,
             rich: {
               name: { fontSize: 13, fontWeight: 600, color: '#1a1a1a', lineHeight: 20, align: 'center' as const },
               type: { fontSize: 10, color: '#999', lineHeight: 16, align: 'center' as const },
@@ -156,11 +164,10 @@ export default function ProcessFlow({ height = 625 }: ProcessFlowProps) {
         const depType = currPP.dependency_type || 'FS';
         const style = DEP_LINE_STYLE[depType] || DEP_LINE_STYLE['FS'];
 
-        // 计算延迟：FS = wait_time + prep_time + setup_time
-        const currProc = processMap.get(currPP.process_id);
+        // V3: 延迟从 ProductProcess 获取（wait_time + prep_time）
         let delayText = '';
-        if (depType === 'FS' && currProc) {
-          const totalDelay = (currProc.wait_time || 0) + (currProc.prep_time || 0) + (currProc.setup_time || 0);
+        if (depType === 'FS') {
+          const totalDelay = (currPP.wait_time || 0) + (currPP.prep_time || 0);
           if (totalDelay > 0) delayText = `${totalDelay}min`;
         }
 
@@ -213,10 +220,15 @@ export default function ProcessFlow({ height = 625 }: ProcessFlowProps) {
             const p = params.data.value;
             let info = `<b>${p.proc_name}</b> (${p.proc_code})<br/>`;
             info += `约束类型: ${p.constraint_type}<br/>`;
-            info += `节拍: ${p.cycle_time}s<br/>`;
-            info += `换型时间: ${p.setup_time}min<br/>`;
-            if (p.wait_time > 0) info += `等待时间: ${p.wait_time}min${p.wait_includes_offhours ? ' (含下班时间)' : ''}<br/>`;
+            info += `工艺类型: ${p.auto_type || '非自动'}<br/>`;
+            info += `节拍时间: ${p.cycle_time}s<br/>`;
+            if (p.max_units_per_beat > 1) info += `单节拍最大数量: ${p.max_units_per_beat}<br/>`;
             if (p.prep_time > 0) info += `准备时间: ${p.prep_time}min<br/>`;
+            if (p.wait_time > 0) {
+              const offhours = p.wait_includes_offhours === 'True' || p.wait_includes_offhours === 'true';
+              info += `等待时间: ${p.wait_time}min${offhours ? ' (含下班时间)' : ''}<br/>`;
+            }
+            info += `依赖类型: ${p.dependency_type || 'FS'}<br/>`;
             return info;
           }
           return '';

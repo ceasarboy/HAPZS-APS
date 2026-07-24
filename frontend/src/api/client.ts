@@ -3,7 +3,7 @@ import { message } from 'antd';
 
 /** Axios 实例，统一配置基础URL和拦截器 */
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8000/api/v1',
+  baseURL: 'http://localhost:8001/api/v1',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

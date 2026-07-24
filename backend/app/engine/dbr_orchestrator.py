@@ -84,9 +84,9 @@ class BottleneckIdentifier:
         for item in items:
             pp_list = pp_by_product.get(item.product, [])
             for pp in pp_list:
-                # std_time 单位为秒，转换为小时
-                std_hours = pp.std_time / 3600.0 if pp.std_time > 100 else pp.std_time
-                load_map[pp.process_id] += std_hours * item.quantity
+                # cycle_time 单位为秒，转换为小时
+                cycle_hours = pp.cycle_time / 3600.0 if pp.cycle_time > 100 else pp.cycle_time
+                load_map[pp.process_id] += cycle_hours * item.quantity
 
         # 计算各工作中心的有效产能
         capacity_map: dict[str, float] = defaultdict(float)
@@ -252,10 +252,10 @@ class BufferCalculator:
             if drum_idx is None:
                 continue
 
-            # Drum 前所有工序的工时之和 = 前置时间
+            # Drum 前所有工序的节拍时间之和 = 前置时间
             for pp in pp_list[:drum_idx]:
-                std_hours = pp.std_time / 3600.0 if pp.std_time > 100 else pp.std_time
-                lead_time_map[pp.process_id] += std_hours
+                cycle_hours = pp.cycle_time / 3600.0 if pp.cycle_time > 100 else pp.cycle_time
+                lead_time_map[pp.process_id] += cycle_hours
                 step_count_map[pp.process_id] += 1
 
         for seq, drum_id in enumerate(drum_ids):

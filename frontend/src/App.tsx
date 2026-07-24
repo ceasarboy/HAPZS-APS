@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
 import {
@@ -7,22 +7,88 @@ import {
   SwapOutlined,
   SettingOutlined,
   HistoryOutlined,
+  AppstoreOutlined,
+  ShopOutlined,
+  ToolOutlined,
+  ApartmentOutlined,
+  ExperimentOutlined,
+  InboxOutlined,
+  CheckSquareOutlined,
+  FileTextOutlined,
+  CalendarOutlined,
+  ThunderboltOutlined,
+  ClockCircleOutlined,
+  BarChartOutlined,
+  TableOutlined,
+  ProductOutlined,
 } from '@ant-design/icons';
 import Dashboard from './pages/Dashboard';
 import Schedule from './pages/Schedule';
 import Changeover from './pages/Changeover';
 import Config from './pages/Config';
 import History from './pages/History';
+import DataManager from './pages/DataManager';
+import ScheduleResultPage from './pages/ScheduleResult';
+import ReportWork from './pages/ReportWork';
 
 const { Sider, Content, Header } = Layout;
 
-/** 侧边栏菜单项配置 */
+/** 侧边栏菜单项配置 - V3 三级嵌套结构 */
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/schedule', icon: <ScheduleOutlined />, label: '排产编制' },
-  { key: '/changeover', icon: <SwapOutlined />, label: '换线矩阵' },
+  {
+    key: 'product-data',
+    icon: <ProductOutlined />,
+    label: '产品数据',
+    children: [
+      { key: '/data/products', icon: <AppstoreOutlined />, label: '产品主数据' },
+      { key: '/data/product-processes', icon: <ApartmentOutlined />, label: '产品工艺' },
+    ],
+  },
+  {
+    key: 'process-data',
+    icon: <ToolOutlined />,
+    label: '工艺数据',
+    children: [
+      { key: '/data/production-lines', icon: <ShopOutlined />, label: '产线管理' },
+      { key: '/data/process-info', icon: <ToolOutlined />, label: '工序信息' },
+      { key: '/data/line-process-configs', icon: <ExperimentOutlined />, label: '产线工艺配置' },
+      { key: '/changeover', icon: <SwapOutlined />, label: '换线矩阵' },
+      { key: '/data/changeover-matrices', icon: <TableOutlined />, label: '换线矩阵表' },
+    ],
+  },
+  {
+    key: 'material-data',
+    icon: <InboxOutlined />,
+    label: '物料管理',
+    children: [
+      { key: '/data/material-masters', icon: <InboxOutlined />, label: '物料主数据' },
+      { key: '/data/process-boms', icon: <FileTextOutlined />, label: '工序BOM' },
+      { key: '/data/material-kittings', icon: <CheckSquareOutlined />, label: '物料齐套' },
+    ],
+  },
+  {
+    key: 'production-data',
+    icon: <ThunderboltOutlined />,
+    label: '生产数据',
+    children: [
+      { key: '/data/demand-plans', icon: <FileTextOutlined />, label: '需求计划' },
+      { key: '/schedule-results', icon: <BarChartOutlined />, label: '派工单' },
+      { key: '/report-work', icon: <CheckSquareOutlined />, label: '报工管理' },
+      { key: '/history', icon: <HistoryOutlined />, label: '排产历史' },
+      { key: '/data/buffer-configs', icon: <ClockCircleOutlined />, label: '缓冲配置' },
+    ],
+  },
+  {
+    key: 'calendar-data',
+    icon: <CalendarOutlined />,
+    label: '日历管理',
+    children: [
+      { key: '/data/resource-calendars', icon: <CalendarOutlined />, label: '资源日历' },
+    ],
+  },
   { key: '/config', icon: <SettingOutlined />, label: '系统配置' },
-  { key: '/history', icon: <HistoryOutlined />, label: '排产历史' },
 ];
 
 /** 应用主布局 - Glassmorphism 风格 */
@@ -30,6 +96,27 @@ function App() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 计算选中的菜单key
+  const selectedKeys = [location.pathname];
+
+  // 根据当前路径自动展开对应的父级菜单
+  const defaultOpenKeys = useMemo(() => {
+    const keys: string[] = [];
+    function findPath(items: any[], target: string, parents: string[] = []): string[] | null {
+      for (const item of items) {
+        if (item.key === target) return [...parents];
+        if (item.children) {
+          const found = findPath(item.children, target, [...parents, item.key]);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    const path = findPath(menuItems, location.pathname);
+    if (path) keys.push(...path);
+    return keys;
+  }, [location.pathname]);
 
   return (
     <Layout style={{ minHeight: '100vh', background: 'transparent' }}>
@@ -80,7 +167,8 @@ function App() {
         <Menu
           theme="light"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={selectedKeys}
+          defaultOpenKeys={defaultOpenKeys}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
           style={{
@@ -160,7 +248,7 @@ function App() {
               fontWeight: 500,
               fontFamily: "'Fira Code', monospace",
             }}>
-              APS-HAP v2.0
+              APS-HAP v3.0
             </span>
           </div>
         </Header>
@@ -177,9 +265,12 @@ function App() {
           <Routes>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/schedule" element={<Schedule />} />
+            <Route path="/schedule-results" element={<ScheduleResultPage />} />
+            <Route path="/report-work" element={<ReportWork />} />
             <Route path="/changeover" element={<Changeover />} />
             <Route path="/config" element={<Config />} />
             <Route path="/history" element={<History />} />
+            <Route path="/data/:tableKey" element={<DataManager />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Content>

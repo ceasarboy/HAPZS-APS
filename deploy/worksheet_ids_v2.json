@@ -12,5 +12,7 @@
   "material_kitting": "6a2ded72ee5a696a850ad8b0",
   "demand_plan": "6a2ded7488359ed358a4faf4",
   "schedule_result": "6a2ded74be69b5a61480b3ac",
-  "resource_calendar": "6a2ded756856d88fae530516"
+  "resource_calendar": "6a2ded756856d88fae530516",
+  "process_schedule_order": "6a58dec5b04c56179567347b",
+  "report_work_order": "6a5a2c9d4c4bdc3b0afb3903"
 }

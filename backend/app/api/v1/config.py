@@ -5,24 +5,10 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.core.app_config import get_hap_config, set_hap_config
+from app.core.app_config import get_hap_config, set_hap_config, get_solver_config, set_solver_config
 from app.core.security import verify_api_key
 
 router = APIRouter()
-
-# 内存中的配置存储
-_config_store: dict[str, Any] = {
-    "solver_type": "ortools",
-    "start_time": "",
-    "end_time": "",
-    "hard_rules": ["FINITE_CAPACITY", "PROCESS_ORDER", "RESOURCE_COMPATIBILITY"],
-    "soft_rules": ["OTD_PRIORITY", "SETUP_MINIMIZATION", "LOAD_BALANCING"],
-    "soft_rule_weights": {
-        "OTD_PRIORITY": 0.35,
-        "SETUP_MINIMIZATION": 0.25,
-        "LOAD_BALANCING": 0.15,
-    },
-}
 
 
 class HapConfigUpdate(BaseModel):
@@ -45,7 +31,7 @@ async def get_config(
     api_key: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     """获取当前生效的求解器配置。"""
-    return _config_store
+    return get_solver_config()
 
 
 @router.put("/", summary="更新配置")
@@ -56,20 +42,15 @@ async def update_config(
     """更新求解器配置。"""
     # 合并更新
     if "solver_type" in config:
-        _config_store["solver_type"] = config["solver_type"]
+        set_solver_config({"solver_type": config["solver_type"]})
     if "start_time" in config:
-        _config_store["start_time"] = config["start_time"]
+        set_solver_config({"start_time": config["start_time"]})
     if "end_time" in config:
-        _config_store["end_time"] = config["end_time"]
+        set_solver_config({"end_time": config["end_time"]})
     if "config" in config:
         inner = config["config"]
-        if "hard_rules" in inner:
-            _config_store["hard_rules"] = inner["hard_rules"]
-        if "soft_rules" in inner:
-            _config_store["soft_rules"] = inner["soft_rules"]
-        if "soft_rule_weights" in inner:
-            _config_store["soft_rule_weights"] = inner["soft_rule_weights"]
-    return _config_store
+        set_solver_config(inner)
+    return get_solver_config()
 
 
 @router.get("/presets", summary="获取预设配置列表")

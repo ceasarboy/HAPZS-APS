@@ -1,6 +1,7 @@
 """FastAPI 应用入口模块。"""
 
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +29,41 @@ async def lifespan(app: FastAPI):
         logger.info("HAP 缓存预热完成")
     except Exception as e:
         logger.warning("HAP 缓存预热失败（不影响启动）: {}", e)
+
+    # 启动事件：每日重置检查
+    try:
+        from app.database import async_session
+        from app.models.entities import SystemConfig
+        from sqlalchemy import select, text
+
+        today_str = date.today().isoformat()
+        async with async_session() as session:
+            # 检查 system_config 表是否存在
+            try:
+                await session.execute(text("SELECT 1 FROM system_config LIMIT 1"))
+            except Exception:
+                logger.warning("system_config 表不存在，跳过每日重置检查")
+            else:
+                cfg = await session.execute(
+                    select(SystemConfig).where(SystemConfig.key == "last_daily_reset_date")
+                )
+                cfg_row = cfg.scalars().first()
+                if not cfg_row or cfg_row.value != today_str:
+                    # 执行每日重置
+                    from app.api.v1.report_work import daily_reset
+                    reset_result = await daily_reset(api_key="internal")
+                    # 更新重置日期
+                    if not cfg_row:
+                        from sqlalchemy import insert
+                        await session.execute(
+                            insert(SystemConfig).values(key="last_daily_reset_date", value=today_str)
+                        )
+                    else:
+                        cfg_row.value = today_str
+                    await session.commit()
+                    logger.info("每日重置完成: {}", reset_result)
+    except Exception as e:
+        logger.warning("每日重置检查失败（不影响启动）: {}", e)
 
     yield
 

@@ -1,16 +1,22 @@
-"""排产业务逻辑服务，负责任务的创建、数据拉取、求解、结果推送等操作。"""
+"""排产业务逻辑服务，负责任务的创建、数据拉取、求解、结果推送等操作。
+
+V3: 数据读取从 HAP API 切换到本地 PostgreSQL，结果写入本地 DB 后触发同步。
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import async_session
 from app.engine.models import (
     Buffer,
     BufferType,
@@ -41,6 +47,25 @@ from app.engine.models import (
 )
 from app.engine.solver_ortools import ORToolsSolver
 from app.hap.client import HAPClient
+from app.models.base import SyncStatus
+from app.models.entities import (
+    Product as ORMProduct,
+    ProcessInfo as ORMProcessInfo,
+    ProductionLine as ORMProductionLine,
+    ProductProcess as ORMProductProcess,
+    LineProcessConfig as ORMLineProcessConfig,
+    MaterialMaster as ORMMaterialMaster,
+    ProcessBOM as ORMProcessBOM,
+    MaterialKitting as ORMMaterialKitting,
+    DemandPlan as ORMDemandPlan,
+    ScheduleResult as ORMScheduleResult,
+    ResourceCalendar as ORMResourceCalendar,
+    ChangeoverMatrix as ORMChangeoverMatrix,
+    BufferConfig as ORMBufferConfig,
+    SchedulePlan as ORMSchedulePlan,
+    ReportWorkOrder as ORMReportWorkOrder,
+    ProcessScheduleOrder as ORMProcessScheduleOrder,
+)
 
 
 # ── 工作表 ID 映射 ────────────────────────────────────────────────────────
@@ -60,7 +85,7 @@ def _load_worksheet_ids() -> dict[str, str]:
 WORKSHEET_IDS: dict[str, str] = _load_worksheet_ids()
 
 
-# ── HAP 数据转换工具 ─────────────────────────────────────────────────────
+# ── HAP 数据转换工具（保留，其他模块可能引用）──────────────────────────────
 
 
 def _opt_value(raw: Any) -> str:
@@ -140,45 +165,46 @@ def _datetime_val(raw: Any) -> datetime | None:
 
 
 class ScheduleService:
-    """排产任务业务逻辑服务（单例，通过 FastAPI Depends 注入）。"""
+    """排产任务业务逻辑服务（单例，通过 FastAPI Depends 注入）。
+
+    V3: 数据读取从本地 PostgreSQL，结果写入本地 DB 后触发 HAP 同步。
+    """
 
     def __init__(self) -> None:
         self._hap = HAPClient()
         # 内存缓存：task_id -> 任务状态信息
         self._tasks: dict[str, dict[str, Any]] = {}
 
-    def _parse_option(self, value: Any, default: str = "") -> str:
-        """解析 HAP 选项字段值。"""
-        if isinstance(value, list) and value:
-            return value[0].get("value", default)
-        if isinstance(value, str):
-            return value
-        return default
-
-    # ── 数据拉取 ──────────────────────────────────────────────────────────
+    # ── 数据拉取（V3: 从本地 PostgreSQL 读取）──────────────────────────────
 
     async def fetch_scheduling_data(
         self,
         start_date: str | None = None,
         end_date: str | None = None,
+        scheduling_mode: str = "capacity",
     ) -> SchedulingProblem:
-        """从 HAP 拉取数据并构建 SchedulingProblem（V2）。
+        """从本地 PostgreSQL 读取数据并构建 SchedulingProblem（V3）。
 
         Args:
             start_date: 排产开始日期，格式 YYYY-MM-DD
             end_date: 排产结束日期，格式 YYYY-MM-DD
+            scheduling_mode: 求解模式 ("capacity" 或 "time_exclusive")
+                影响时间槽粒度：capacity=日级聚合，time_exclusive=小时级保留
 
         Returns:
             SchedulingProblem: 求解问题实例
         """
-        logger.info("开始从 HAP 拉取排产数据(V2), 日期范围: {} ~ {}", start_date, end_date)
+        logger.info(
+            "开始从本地 DB 读取排产数据(V3), 日期范围: {} ~ {}, 求解模式: {}",
+            start_date, end_date, scheduling_mode,
+        )
 
-        # 并行拉取所有工作表数据
+        # 并行读取所有表数据
         results = await asyncio.gather(
             self._fetch_products(),
             self._fetch_production_lines(),
             self._fetch_demand_plans(),
-            self._fetch_time_slots(start_date, end_date),
+            self._fetch_time_slots(start_date, end_date, scheduling_mode),
             self._fetch_changeover_matrix(),
             self._fetch_buffers(),
             self._fetch_process_info(),
@@ -243,7 +269,7 @@ class ScheduleService:
         )
 
         logger.info(
-            "HAP 数据拉取完成(V2): 产品={} 产线={} 需求计划={} 时间槽={} 换线={} 缓冲={} "
+            "本地 DB 数据读取完成(V3): 产品={} 产线={} 需求计划={} 时间槽={} 换线={} 缓冲={} "
             "工序信息={} 产品工艺={} 产线工艺配置={} 工序BOM={} 物料齐套={}",
             len(products), len(production_lines), len(demand_plans),
             len(time_slots), len(changeover), len(buffers),
@@ -251,6 +277,487 @@ class ScheduleService:
             len(process_boms), len(material_kittings),
         )
         return problem
+
+    async def _fetch_products(self) -> list[Product]:
+        """从本地 products 表读取产品列表。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMProduct))
+            rows = result.scalars().all()
+        products: list[Product] = []
+        for r in rows:
+            products.append(Product(
+                id=r.id,
+                code=r.prod_code or "",
+                name=r.prod_name or "",
+                changeover_attr=r.changeover_attr or "",
+                output_rate=float(r.output_rate) if r.output_rate is not None else 1.0,
+                batch_size=int(r.batch_size) if r.batch_size is not None else 1,
+                processing_batch=1,
+                transfer_batch=1,
+                compatible_workcenters=[],
+            ))
+        return products
+
+    async def _fetch_production_lines(self) -> list[ProductionLine]:
+        """从本地 production_lines 表读取产线列表。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMProductionLine))
+            rows = result.scalars().all()
+        result_list: list[ProductionLine] = []
+        for r in rows:
+            line = ProductionLine(
+                id=r.id,
+                line_code=r.line_code or "",
+                line_name=r.line_name or "",
+                line_type=r.line_type or "主产线",
+                line_load=0.0,
+                location=r.location or "",
+                status=r.status or "运行中",
+            )
+            result_list.append(line)
+        return result_list
+
+    async def _fetch_demand_plans(self) -> list[DemandPlan]:
+        """从本地 demand_plans 表读取需求计划列表。
+
+        V3.1: 基于工序排产单跟踪完成情况，而非需求计划级别。
+        - completed_qty: 最终工序完成时累加，代表产品实际产出
+        - remaining_qty: 需求总量 - completed_qty（产品实际需求剩余）
+        - scheduled_qty: 仅用于显示，不参与排产数量计算
+        """
+        async with async_session() as session:
+            result = await session.execute(select(ORMDemandPlan))
+            rows = result.scalars().all()
+        result_list: list[DemandPlan] = []
+        for r in rows:
+            due_date_str = ""
+            if r.due_date is not None:
+                due_date_str = r.due_date.strftime("%Y-%m-%d") if isinstance(r.due_date, date) else str(r.due_date)
+            raw_qty = int(r.quantity) if r.quantity is not None else 0
+            completed = int(r.completed_qty) if r.completed_qty is not None else 0
+            remaining_qty = max(raw_qty - completed, 0)
+            dp = DemandPlan(
+                id=r.id,
+                dp_code=r.dp_code or "",
+                product_id=r.product_id or "",
+                quantity=remaining_qty,  # 排产器使用剩余需求量（基于completed_qty）
+                unit=r.unit or "台",
+                due_date=due_date_str,
+                priority=r.priority or "中",
+                status=r.status or "待排",
+                remark=r.remark or "",
+                scheduled_qty=completed,  # 传给排产器作为已排数量
+            )
+            if remaining_qty > 0:
+                result_list.append(dp)
+
+        # 结转需求：查询已失效且未完成的工序排产单，取最后一道工序的未完成数量作为结转数量
+        try:
+            # Step 1: 查询已失效且未完成的工序排产单
+            async with async_session() as session2:
+                pso_stmt = select(ORMProcessScheduleOrder).where(
+                    ORMProcessScheduleOrder.pso_status == "已失效",
+                    ORMProcessScheduleOrder.pso_unfinished_qty > 0,
+                ).order_by(
+                    ORMProcessScheduleOrder.demand_id,
+                    ORMProcessScheduleOrder.product_id,
+                    ORMProcessScheduleOrder.seq,
+                )
+                pso_result = await session2.execute(pso_stmt)
+                invalid_psos = pso_result.scalars().all()
+
+            if not invalid_psos:
+                return result_list
+
+            # 按 demand_id + product_id 分组，每组只取 seq 最大的（最后一道工序）的未完成数量
+            carryover_map: dict[str, dict[str, ORMProcessScheduleOrder]] = {}
+            for pso in invalid_psos:
+                did = pso.demand_id or "unknown"
+                pid = pso.product_id or ""
+                if did not in carryover_map:
+                    carryover_map[did] = {}
+                existing = carryover_map[did].get(pid)
+                if existing is None or (pso.seq or 0) > (existing.seq or 0):
+                    carryover_map[did][pid] = pso
+
+            tomorrow = (date.today() + __import__("datetime").timedelta(days=1)).strftime("%Y-%m-%d")
+            tomorrow_date = date.today() + __import__("datetime").timedelta(days=1)
+
+            # 查询原始需求计划获取优先级 + 写入结转需求（使用单个session避免连接池耗尽）
+            demand_ids = list(carryover_map.keys())
+            demand_priority_map: dict[str, str] = {}
+            carryover_records: list[tuple[str, str, int, str, str]] = []  # (carryover_id, dp_code, qty, priority, product_id)
+
+            async with async_session() as carryover_session:
+                if demand_ids:
+                    dp_result = await carryover_session.execute(
+                        select(ORMDemandPlan).where(ORMDemandPlan.id.in_(demand_ids))
+                    )
+                    for dp_row in dp_result.scalars().all():
+                        demand_priority_map[dp_row.id] = dp_row.priority or "中"
+
+                # 写入结转需求到DB
+                for did, product_groups in carryover_map.items():
+                    for pid, pso in product_groups.items():
+                        total_unfinished = pso.pso_unfinished_qty or 0
+                        if total_unfinished <= 0:
+                            continue
+                        carryover_code = f"UNFINISHED-{did[:8]}-{pid[:8]}"
+
+                        # 检查是否已存在
+                        existing = await carryover_session.execute(
+                            select(ORMDemandPlan).where(ORMDemandPlan.dp_code == carryover_code)
+                        )
+                        existing_dp = existing.scalars().first()
+
+                        if existing_dp:
+                            carryover_id = existing_dp.id
+                            # 更新已有结转需求的数量（重置scheduled_qty，因为quantity已更新为最新未完成量）
+                            existing_dp.quantity = total_unfinished
+                            existing_dp.scheduled_qty = 0
+                            existing_dp.due_date = tomorrow_date
+                            logger.info("结转需求已存在: dp_code={}, 更新qty={}, 重置scheduled_qty, id={}", carryover_code, total_unfinished, carryover_id)
+                        else:
+                            carryover_id = str(uuid.uuid4())
+                            orm_carryover = ORMDemandPlan(
+                                id=carryover_id,
+                                dp_code=carryover_code,
+                                product_id=pid,
+                                quantity=total_unfinished,
+                                unit="台",
+                                due_date=tomorrow_date,
+                                priority=demand_priority_map.get(did, "中"),
+                                status="待排",
+                                remark=f"结转需求(原需求{did[:8]},产品{pid[:8]})",
+                            )
+                            carryover_session.add(orm_carryover)
+                            logger.info("结转需求写入DB: dp_code={}, qty={}, id={}", carryover_code, total_unfinished, carryover_id)
+
+                        carryover_records.append((carryover_id, carryover_code, total_unfinished, demand_priority_map.get(did, "中"), pid))
+
+                await carryover_session.commit()
+
+            # Step 3: 添加到返回列表
+            for carryover_id, carryover_code, qty, priority, pid in carryover_records:
+                carryover_dp = DemandPlan(
+                    id=carryover_id,
+                    product_id=pid,
+                    quantity=qty,
+                    due_date=tomorrow,
+                    priority=priority,
+                    status="待排",
+                    dp_code=carryover_code,
+                    is_carryover=True,
+                )
+                result_list.append(carryover_dp)
+
+            logger.info("结转需求: 生成 {} 条结转需求计划", len(carryover_records))
+        except Exception as e:
+            logger.warning("结转需求处理失败（不影响正常排产）: {}", e)
+
+        return result_list
+
+    # V3: 时间槽粒度（分钟），日级=720（12小时工作日 8:00-20:00）
+    SLOT_DURATION_MINUTES = 720
+
+    async def _fetch_time_slots(
+        self, start_date: str | None, end_date: str | None,
+        scheduling_mode: str = "capacity",
+    ) -> list[TimeSlot]:
+        """从本地 resource_calendars 表读取时间槽数据。
+
+        Args:
+            start_date: 排产开始日期 YYYY-MM-DD
+            end_date: 排产结束日期 YYYY-MM-DD
+            scheduling_mode: 求解模式
+                - "capacity"（默认）: 聚合为日级时间槽（720 分钟/槽），适合产能累加模式
+                - "time_exclusive": 保留小时级时间槽（60 分钟/槽），让 max_units_per_beat 细粒度生效
+
+        V3: capacity 模式将小时级时间槽聚合为日级，避免搜索空间爆炸。
+        V3.3: time_exclusive 模式保留小时级粒度，正确体现 cycle_time/max_units_per_beat 影响。
+        """
+        async with async_session() as session:
+            stmt = select(ORMResourceCalendar)
+            if start_date:
+                sd = start_date[:10] if len(start_date) >= 10 else start_date
+                try:
+                    sd_date = datetime.strptime(sd, "%Y-%m-%d").date()
+                    stmt = stmt.where(ORMResourceCalendar.rc_date >= sd_date)
+                except ValueError:
+                    pass
+            if end_date:
+                ed = end_date[:10] if len(end_date) >= 10 else end_date
+                try:
+                    ed_date = datetime.strptime(ed, "%Y-%m-%d").date()
+                    stmt = stmt.where(ORMResourceCalendar.rc_date <= ed_date)
+                except ValueError:
+                    pass
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
+        result_list: list[TimeSlot] = []
+
+        if scheduling_mode == "time_exclusive":
+            # 保留小时级粒度：每个 (date, line_id, process_id, rc_hour) 一条 TimeSlot
+            for r in rows:
+                date_str = ""
+                if r.rc_date is not None:
+                    date_str = r.rc_date.strftime("%Y-%m-%d") if isinstance(r.rc_date, date) else str(r.rc_date)
+                if not date_str:
+                    continue
+                is_working = r.is_working if r.is_working is not None else True
+                if not is_working:
+                    continue
+
+                line_id = r.line_id or ""
+                process_id = r.process_id or ""
+                hour = r.rc_hour if r.rc_hour is not None else 0
+
+                # 小时级时间槽：08:00-09:00, 09:00-10:00, ...
+                start_time = f"{hour:02d}:00"
+                end_hour = (hour + 1) if hour < 23 else 23
+                end_time = f"{end_hour:02d}:00"
+
+                ts = TimeSlot(
+                    date=date_str,
+                    hour=hour,
+                    available_capacity=r.available_capacity or 0.0,
+                    workcenter_id=line_id,
+                    process_id=process_id,
+                    index=0,
+                    slot_id=0,
+                    start_time=start_time,
+                    end_time=end_time,
+                    is_frozen=False,
+                )
+                ts.capacity = {"minute": 0, "slot_duration": 60}  # 小时级 60 分钟
+                result_list.append(ts)
+
+            # 按日期+小时排序
+            result_list.sort(key=lambda ts: (ts.date, ts.hour))
+            for i, ts in enumerate(result_list):
+                ts.index = i
+                ts.slot_id = i
+
+            logger.info(
+                "时间槽(time_exclusive): {} 个小时级时间槽 (从 {} 行原始数据)",
+                len(result_list), len(rows),
+            )
+            return result_list
+
+        # capacity 模式：按 (date, line_id, process_id) 聚合为日级时间槽
+        daily_slots: dict[tuple[str, str, str], dict] = {}
+        for r in rows:
+            date_str = ""
+            if r.rc_date is not None:
+                date_str = r.rc_date.strftime("%Y-%m-%d") if isinstance(r.rc_date, date) else str(r.rc_date)
+            if not date_str:
+                continue
+            is_working = r.is_working if r.is_working is not None else True
+            if not is_working:
+                continue
+
+            line_id = r.line_id or ""
+            process_id = r.process_id or ""
+            key = (date_str, line_id, process_id)
+
+            if key not in daily_slots:
+                daily_slots[key] = {
+                    "date": date_str,
+                    "line_id": line_id,
+                    "process_id": process_id,
+                    "total_capacity": 0.0,
+                    "slot_count": 0,
+                }
+            # 聚合每日总产能（各小时产能之和）
+            cap = r.available_capacity or 0.0
+            daily_slots[key]["total_capacity"] += cap
+            daily_slots[key]["slot_count"] += 1
+
+        for slot_data in daily_slots.values():
+            total_cap = slot_data["total_capacity"]
+            ts = TimeSlot(
+                date=slot_data["date"],
+                hour=0,  # 日级时间槽 hour=0
+                available_capacity=total_cap,  # 使用聚合后的日总产能
+                workcenter_id=slot_data["line_id"],
+                process_id=slot_data["process_id"],
+                index=0,
+                slot_id=0,
+                start_time="全天",
+                end_time="全天",
+                is_frozen=False,
+            )
+            ts.capacity = {"minute": 0, "slot_duration": 720}  # 日级 720 分钟
+            result_list.append(ts)
+
+        # 按日期排序
+        result_list.sort(key=lambda ts: ts.date)
+        for i, ts in enumerate(result_list):
+            ts.index = i
+            ts.slot_id = i
+
+        logger.info(
+            "时间槽(capacity): {} 个日级时间槽 (从 {} 行小时级数据聚合)",
+            len(result_list), len(rows),
+        )
+        return result_list
+
+    async def _fetch_process_info(self) -> list[ProcessInfo]:
+        """从本地 process_info 表读取工序信息。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMProcessInfo))
+            rows = result.scalars().all()
+        result_list: list[ProcessInfo] = []
+        for r in rows:
+            pi = ProcessInfo(
+                id=r.id,
+                proc_code=r.proc_code or "",
+                proc_name=r.proc_name or "",
+                proc_type=r.proc_type or "",
+                constraint_type=r.constraint_type or "机时约束",
+                is_qc_point=bool(r.is_qc_point) if r.is_qc_point is not None else False,
+                status=r.status or "启用",
+            )
+            result_list.append(pi)
+        return result_list
+
+    async def _fetch_product_processes(self) -> list[ProductProcess]:
+        """从本地 product_processes 表读取产品工艺。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMProductProcess))
+            rows = result.scalars().all()
+        result_list: list[ProductProcess] = []
+        for r in rows:
+            pp = ProductProcess(
+                id=r.id,
+                product_id=r.product_id or "",
+                process_id=r.process_id or "",
+                seq=int(r.seq) if r.seq is not None else 0,
+                auto_type=r.auto_type or "非自动",
+                cycle_time=float(r.cycle_time) if r.cycle_time is not None else 0.0,
+                max_units_per_beat=int(r.max_units_per_beat) if r.max_units_per_beat is not None else 1,
+                prep_time=float(r.prep_time) if r.prep_time is not None else 0.0,
+                wait_time=float(r.wait_time) if r.wait_time is not None else 0.0,
+                dependency_type=r.dependency_type or "FS",
+                wait_includes_offhours=bool(r.wait_includes_offhours) if r.wait_includes_offhours is not None else False,
+                is_key=bool(r.is_key) if r.is_key is not None else False,
+                remark=r.remark or "",
+            )
+            result_list.append(pp)
+        return result_list
+
+    async def _fetch_line_process_configs(self) -> list[LineProcessConfig]:
+        """从本地 line_process_configs 表读取产线工艺配置。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMLineProcessConfig))
+            rows = result.scalars().all()
+        result_list: list[LineProcessConfig] = []
+        for r in rows:
+            lpc = LineProcessConfig(
+                id=r.id,
+                lpc_code=r.lpc_code or "",
+                line_id=r.line_id or "",
+                process_id=r.process_id or "",
+                auto_type=r.auto_type or "非自动",
+                is_bottleneck=bool(r.is_bottleneck) if r.is_bottleneck is not None else False,
+                equipment_count=int(r.equipment_count) if r.equipment_count is not None else 0,
+                worker_count=int(r.worker_count) if r.worker_count is not None else 0,
+                status=r.status or "启用",
+            )
+            result_list.append(lpc)
+        return result_list
+
+    async def _fetch_process_bom(self) -> list[ProcessBOM]:
+        """从本地 process_boms 表读取工序 BOM。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMProcessBOM))
+            rows = result.scalars().all()
+        result_list: list[ProcessBOM] = []
+        for r in rows:
+            pb = ProcessBOM(
+                id=r.id,
+                product_id=r.product_id or "",
+                process_id=r.process_id or "",
+                material_id=r.material_id or "",
+                unit_qty=float(r.unit_qty) if r.unit_qty is not None else 0.0,
+                reusable=bool(r.reusable) if r.reusable is not None else False,
+                remark=r.remark or "",
+            )
+            result_list.append(pb)
+        return result_list
+
+    async def _fetch_material_kitting(self) -> list[MaterialKitting]:
+        """从本地 material_kittings 表读取物料齐套。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMMaterialKitting))
+            rows = result.scalars().all()
+        result_list: list[MaterialKitting] = []
+        for r in rows:
+            kitting_date_str = ""
+            if r.kitting_date is not None:
+                kitting_date_str = r.kitting_date.strftime("%Y-%m-%d") if isinstance(r.kitting_date, date) else str(r.kitting_date)
+
+            mk = MaterialKitting(
+                id=r.id,
+                demand_id=r.demand_id or "",
+                product_id=r.product_id or "",
+                process_id=r.process_id or "",
+                material_id=r.material_id or "",
+                required_qty=int(r.required_qty) if r.required_qty is not None else 0,
+                available_qty=int(r.available_qty) if r.available_qty is not None else 0,
+                shortage_qty=int(r.shortage_qty) if r.shortage_qty is not None else 0,
+                kitting_date=kitting_date_str,
+                kitting_status=r.kitting_status or "待确认",
+            )
+            result_list.append(mk)
+        return result_list
+
+    async def _fetch_changeover_matrix(self) -> list[ChangeoverMatrix]:
+        """从本地 changeover_matrices 表读取换线矩阵。
+
+        V3: 同时读取产品维度和 LPC 维度的换线数据。
+        """
+        async with async_session() as session:
+            result = await session.execute(select(ORMChangeoverMatrix))
+            rows = result.scalars().all()
+        matrix: list[ChangeoverMatrix] = []
+        for r in rows:
+            setup_time = float(r.setup_time) if r.setup_time is not None else 0.0
+            matrix.append(ChangeoverMatrix(
+                from_product_id=r.from_product_id or "",
+                to_product_id=r.to_product_id or "",
+                from_lpc_id=r.from_lpc_id or "",
+                to_lpc_id=r.to_lpc_id or "",
+                changeover_type=r.changeover_type or "产品换线",
+                setup_time=setup_time,
+                changeover_time=setup_time,  # 兼容别名
+                changeover_cost=0.0,
+                similarity_score=1.0,
+            ))
+        return matrix
+
+    async def _fetch_buffers(self) -> list[Buffer]:
+        """从本地 buffer_configs 表读取缓冲配置。"""
+        async with async_session() as session:
+            result = await session.execute(select(ORMBufferConfig))
+            rows = result.scalars().all()
+        bufs: list[Buffer] = []
+        for r in rows:
+            bufs.append(Buffer(
+                id=r.id,
+                from_workcenter_id="",
+                to_workcenter_id="",
+                buffer_type=BufferType.TIME,
+                duration_hours=float(r.buffer_time) / 60.0 if r.buffer_time is not None else 0.0,
+                green_zone=0.0,
+                yellow_zone=0.0,
+                red_zone=0.0,
+                workcenter_id=r.process_id or "",
+            ))
+        return bufs
+
+    # ── V1 兼容方法（deprecated，保留避免其他模块报错）──────────────────────
 
     async def _fetch_all_rows(self, worksheet_id: str) -> list[dict[str, Any]]:
         """分页拉取工作表全部行数据。"""
@@ -270,280 +777,13 @@ class ScheduleService:
             page_index += 1
         return all_rows
 
-    async def _fetch_products(self) -> list[Product]:
-        """从 HAP product 表读取产品列表。"""
-        ws_id = WORKSHEET_IDS.get("product", "")
-        if not ws_id:
-            logger.warning("product 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        products: list[Product] = []
-        for r in rows:
-            products.append(Product(
-                id=r.get("rowId", r.get("rowid", "")),
-                code=_str_val(r.get("product_code", "")),
-                name=_str_val(r.get("product_name", "")),
-                changeover_attr=_opt_value(r.get("changeover_attr", "")),
-                output_rate=_float_val(r.get("output_rate", 1.0)),
-                batch_size=_int_val(r.get("batch_size", 1)),
-                processing_batch=_int_val(r.get("processing_batch", 1)),
-                transfer_batch=_int_val(r.get("transfer_batch", 1)),
-                compatible_workcenters=_str_val(r.get("compatible_workcenters", "")).split(",") if r.get("compatible_workcenters") else [],
-            ))
-        return products
-
-    # ── V2 数据拉取方法 ──────────────────────────────────────────────────
-
-    async def _fetch_production_lines(self) -> list[ProductionLine]:
-        """从 HAP production_line 表读取产线列表（V2，替代 _fetch_work_centers）。"""
-        ws_id = WORKSHEET_IDS.get("production_line", "")
-        if not ws_id:
-            logger.warning("production_line 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[ProductionLine] = []
-        for r in rows:
-            line = ProductionLine(
-                id=r.get("rowId", r.get("rowid", "")),
-                line_code=_str_val(r.get("line_code", "")),
-                line_name=_str_val(r.get("line_name", "")),
-                line_type=self._parse_option(r.get("line_type"), "主产线"),
-                daily_capacity=_int_val(r.get("line_capacity", 0)),
-                line_load=_float_val(r.get("line_load", 0)),
-                efficiency=_float_val(r.get("line_efficiency", 100)),
-                location=_str_val(r.get("line_location", "")),
-                status=self._parse_option(r.get("line_status"), "运行中"),
-            )
-            result.append(line)
-        return result
-
-    async def _fetch_demand_plans(self) -> list[DemandPlan]:
-        """从 HAP demand_plan 表读取需求计划列表（V2，替代 _fetch_order_items）。"""
-        ws_id = WORKSHEET_IDS.get("demand_plan", "")
-        if not ws_id:
-            logger.warning("demand_plan 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[DemandPlan] = []
-        for r in rows:
-            product_ref = r.get("dp_product", [])
-            product_id = product_ref[0].get("sid", "") if product_ref and isinstance(product_ref, list) else ""
-            dp = DemandPlan(
-                id=r.get("rowId", r.get("rowid", "")),
-                dp_code=_str_val(r.get("dp_code", "")),
-                product_id=product_id,
-                quantity=_int_val(r.get("dp_quantity", 0)),
-                unit=_str_val(r.get("dp_unit", "台")),
-                due_date=_str_val(r.get("dp_due_date", "")),
-                priority=self._parse_option(r.get("dp_priority"), "中"),
-                status=self._parse_option(r.get("dp_status"), "待确认"),
-                remark=_str_val(r.get("dp_remark", "")),
-            )
-            result.append(dp)
-        return result
-
-    async def _fetch_time_slots(
-        self, start_date: str | None, end_date: str | None,
-    ) -> list[TimeSlot]:
-        """从 HAP resource_calendar 表读取小时时段数据（V2）。
-
-        注意：HAP API 日期筛选不生效，改为读取全部数据后在代码中手动过滤。
-        """
-        ws_id = WORKSHEET_IDS.get("resource_calendar", "")
-        if not ws_id:
-            logger.warning("resource_calendar 工作表 ID 未配置，跳过")
-            return []
-
-        rows = await self._fetch_all_rows(ws_id)
-
-        result: list[TimeSlot] = []
-        for r in rows:
-            line_ref = r.get("rc_line", [])
-            line_id = line_ref[0].get("sid", "") if line_ref and isinstance(line_ref, list) else ""
-
-            # 解析工序关联
-            process_ref = r.get("rc_process", [])
-            process_id = process_ref[0].get("sid", "") if process_ref and isinstance(process_ref, list) else ""
-
-            # 从 rc_code 解析时段信息（如 RC-LINE-SMT-A-PROC-SMT-01-2026-06-14-H08）
-            rc_code = _str_val(r.get("rc_code", ""))
-            hour_part = ""
-            if "-H" in rc_code:
-                hour_part = rc_code.split("-H")[-1]
-
-            is_workday = self._parse_option(r.get("rc_is_workday"), "工作日") == "工作日"
-
-            ts = TimeSlot(
-                date=_str_val(r.get("rc_date", "")),
-                hour=int(hour_part) if hour_part.isdigit() else 0,
-                available_capacity=_float_val(r.get("rc_effective_capacity", 0)),
-                workcenter_id=line_id,  # 复用旧字段名
-                process_id=process_id,  # V2: 工序级时段
-                index=0,  # 排序后重新分配
-                slot_id=0,
-                is_frozen=not is_workday,
-            )
-            # 只保留有产能的时段（跳过周末/节假日产能为0的记录）
-            if ts.available_capacity > 0:
-                # 手动按日期范围过滤（HAP API 日期筛选不生效）
-                # 注意：start_date/end_date 可能含时间部分（如 YYYY-MM-DDTHH:mm:ss），
-                # 需截取前10字符与 ts.date（YYYY-MM-DD）对齐比较
-                sd = start_date[:10] if start_date and len(start_date) >= 10 else start_date
-                ed = end_date[:10] if end_date and len(end_date) >= 10 else end_date
-                if sd and ts.date < sd:
-                    continue
-                if ed and ts.date > ed:
-                    continue
-                result.append(ts)
-
-        # 按 (date, hour) 排序，确保累积产量约束的时间顺序正确
-        result.sort(key=lambda ts: (ts.date, ts.hour))
-        for i, ts in enumerate(result):
-            ts.index = i
-            ts.slot_id = i
-        return result
-
-    async def _fetch_process_info(self) -> list[ProcessInfo]:
-        """从 HAP process_info 表读取工序信息（V2 新增）。"""
-        ws_id = WORKSHEET_IDS.get("process_info", "")
-        if not ws_id:
-            logger.warning("process_info 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[ProcessInfo] = []
-        for r in rows:
-            pi = ProcessInfo(
-                id=r.get("rowId", r.get("rowid", "")),
-                proc_code=_str_val(r.get("proc_code", "")),
-                proc_name=_str_val(r.get("proc_name", "")),
-                proc_type=self._parse_option(r.get("proc_type"), ""),
-                constraint_type=self._parse_option(r.get("constraint_type"), "机时约束"),
-                cycle_time=_float_val(r.get("cycle_time", 0)),
-                setup_time=_float_val(r.get("setup_time", 0)),
-                wait_time=_float_val(r.get("wait_time", 0)),
-                # wait_includes_offhours: HAP 字段可能为空，wait_time>0 时默认 True（计入下班时间）
-                wait_includes_offhours=bool(r.get("wait_includes_offhours")) if r.get("wait_includes_offhours") else True,
-                prep_time=_float_val(r.get("prep_time", 0)),
-                is_qc_point=bool(r.get("is_qc_point", False)),
-                status=self._parse_option(r.get("proc_status"), "启用"),
-            )
-            result.append(pi)
-        return result
-
-    async def _fetch_product_processes(self) -> list[ProductProcess]:
-        """从 HAP product_process 表读取产品工艺（V2，替代 _fetch_process_routes 的产品维度）。"""
-        ws_id = WORKSHEET_IDS.get("product_process", "")
-        if not ws_id:
-            logger.warning("product_process 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[ProductProcess] = []
-        for r in rows:
-            product_ref = r.get("pp_product", [])
-            process_ref = r.get("pp_process", [])
-            product_id = product_ref[0].get("sid", "") if product_ref and isinstance(product_ref, list) else ""
-            process_id = process_ref[0].get("sid", "") if process_ref and isinstance(process_ref, list) else ""
-
-            pp = ProductProcess(
-                id=r.get("rowId", r.get("rowid", "")),
-                product_id=product_id,
-                process_id=process_id,
-                seq=_int_val(r.get("pp_seq", 0)),
-                std_time=_float_val(r.get("pp_std_time", 0)),
-                dependency_type=self._parse_option(r.get("dependency_type"), "FS"),
-                is_key=bool(r.get("pp_is_key", False)),
-                remark=_str_val(r.get("pp_remark", "")),
-            )
-            result.append(pp)
-        return result
-
-    async def _fetch_line_process_configs(self) -> list[LineProcessConfig]:
-        """从 HAP line_process_config 表读取产线工艺配置（V2 新增）。"""
-        ws_id = WORKSHEET_IDS.get("line_process_config", "")
-        if not ws_id:
-            logger.warning("line_process_config 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[LineProcessConfig] = []
-        for r in rows:
-            line_ref = r.get("lpc_line", [])
-            process_ref = r.get("lpc_process", [])
-            line_id = line_ref[0].get("sid", "") if line_ref and isinstance(line_ref, list) else ""
-            process_id = process_ref[0].get("sid", "") if process_ref and isinstance(process_ref, list) else ""
-
-            lpc = LineProcessConfig(
-                id=r.get("rowId", r.get("rowid", "")),
-                line_id=line_id,
-                process_id=process_id,
-                daily_capacity=_int_val(r.get("lpc_daily_capacity", 0)),
-                efficiency=_float_val(r.get("lpc_efficiency", 100)),
-                min_batch=_int_val(r.get("lpc_min_batch", 0)),
-                is_bottleneck=bool(r.get("lpc_is_bottleneck", False)),
-                equipment_count=_int_val(r.get("lpc_equipment_count", 0)),
-                worker_count=_int_val(r.get("lpc_worker_count", 0)),
-                status=self._parse_option(r.get("lpc_status"), "启用"),
-            )
-            result.append(lpc)
-        return result
-
-    async def _fetch_process_bom(self) -> list[ProcessBOM]:
-        """从 HAP process_bom 表读取工序 BOM（V2 新增）。"""
-        ws_id = WORKSHEET_IDS.get("process_bom", "")
-        if not ws_id:
-            logger.warning("process_bom 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[ProcessBOM] = []
-        for r in rows:
-            product_ref = r.get("pb_product", [])
-            process_ref = r.get("pb_process", [])
-            material_ref = r.get("pb_material", [])
-            product_id = product_ref[0].get("sid", "") if product_ref and isinstance(product_ref, list) else ""
-            process_id = process_ref[0].get("sid", "") if process_ref and isinstance(process_ref, list) else ""
-            material_id = material_ref[0].get("sid", "") if material_ref and isinstance(material_ref, list) else ""
-
-            pb = ProcessBOM(
-                id=r.get("rowId", r.get("rowid", "")),
-                product_id=product_id,
-                process_id=process_id,
-                material_id=material_id,
-                unit_qty=_float_val(r.get("pb_unit_qty", 0)),
-                reusable=bool(r.get("pb_reusable", False)),
-                remark=_str_val(r.get("pb_remark", "")),
-            )
-            result.append(pb)
-        return result
-
-    async def _fetch_material_kitting(self) -> list[MaterialKitting]:
-        """从 HAP material_kitting 表读取物料齐套（V2，替代 _fetch_buffers 中的 kitting 部分）。"""
-        ws_id = WORKSHEET_IDS.get("material_kitting", "")
-        if not ws_id:
-            logger.warning("material_kitting 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        result: list[MaterialKitting] = []
-        for r in rows:
-            demand_ref = r.get("mk_demand", [])
-            product_ref = r.get("mk_product", [])
-            process_ref = r.get("mk_process", [])
-            material_ref = r.get("mk_material", [])
-
-            mk = MaterialKitting(
-                id=r.get("rowId", r.get("rowid", "")),
-                demand_id=demand_ref[0].get("sid", "") if demand_ref and isinstance(demand_ref, list) else "",
-                product_id=product_ref[0].get("sid", "") if product_ref and isinstance(product_ref, list) else "",
-                process_id=process_ref[0].get("sid", "") if process_ref and isinstance(process_ref, list) else "",
-                material_id=material_ref[0].get("sid", "") if material_ref and isinstance(material_ref, list) else "",
-                required_qty=_int_val(r.get("mk_required_qty", 0)),
-                available_qty=_int_val(r.get("mk_available_qty", 0)),
-                shortage_qty=_int_val(r.get("mk_shortage_qty", 0)),
-                kitting_date=_str_val(r.get("mk_kitting_date", "")),
-                kitting_status=self._parse_option(r.get("mk_kitting_status"), "待确认"),
-            )
-            result.append(mk)
-        return result
-
-    # ── V1 兼容方法（deprecated，保留避免其他模块报错）──────────────────────
+    def _parse_option(self, value: Any, default: str = "") -> str:
+        """解析 HAP 选项字段值。"""
+        if isinstance(value, list) and value:
+            return value[0].get("value", default)
+        if isinstance(value, str):
+            return value
+        return default
 
     async def _fetch_work_centers(self) -> list[WorkCenter]:
         """从 HAP work_center 表读取工作中心列表（deprecated，请使用 _fetch_production_lines）。"""
@@ -581,7 +821,6 @@ class ScheduleService:
             logger.warning("order_item 工作表 ID 未配置，跳过")
             return []
         rows = await self._fetch_all_rows(ws_id)
-        # 从 production_order 表获取优先级映射
         order_priority = await self._fetch_order_priorities()
         items: list[OrderItem] = []
         for r in rows:
@@ -598,7 +837,7 @@ class ScheduleService:
                 demand_qty=_float_val(r.get("demand_qty", 0.0)),
                 scheduled_qty=_float_val(r.get("scheduled_qty", 0.0)),
                 delivery_date=_datetime_val(r.get("item_delivery_date")),
-                status=status_map.get(status_val, OrderItemStatus.PENDING) if 'status_map' in dir() else OrderItemStatus.PENDING,
+                status=OrderItemStatus.PENDING,
                 order_no=order_name,
                 product=product_name,
                 quantity=_float_val(r.get("demand_qty", 0.0)),
@@ -620,49 +859,6 @@ class ScheduleService:
             result[rid] = priority_val
         return result
 
-    async def _fetch_changeover_matrix(self) -> list[ChangeoverMatrix]:
-        """从 HAP changeover_matrix 表读取换线矩阵。"""
-        ws_id = WORKSHEET_IDS.get("changeover_matrix", "")
-        if not ws_id:
-            logger.warning("changeover_matrix 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        matrix: list[ChangeoverMatrix] = []
-        for r in rows:
-            from_prod = _relation_name(r.get("from_product", ""))
-            to_prod = _relation_name(r.get("to_product", ""))
-            matrix.append(ChangeoverMatrix(
-                from_product_id=from_prod,
-                to_product_id=to_prod,
-                changeover_time=_float_val(r.get("changeover_time", 0.0)),
-                changeover_cost=_float_val(r.get("changeover_cost", 0.0)),
-                similarity_score=_float_val(r.get("process_similarity", 1.0)),
-            ))
-        return matrix
-
-    async def _fetch_buffers(self) -> list[Buffer]:
-        """从 HAP buffer_config 表读取缓冲配置。"""
-        ws_id = WORKSHEET_IDS.get("buffer_config", "")
-        if not ws_id:
-            logger.warning("buffer_config 工作表 ID 未配置，跳过")
-            return []
-        rows = await self._fetch_all_rows(ws_id)
-        type_map = {v.value: v for v in BufferType}
-        bufs: list[Buffer] = []
-        for r in rows:
-            buf_type_key = _opt_key(r.get("buffer_type", ""))
-            bufs.append(Buffer(
-                id=r.get("rowId", r.get("rowid", "")),
-                from_workcenter_id=_str_val(r.get("from_workcenter", "")),
-                to_workcenter_id=_str_val(r.get("to_workcenter", "")),
-                buffer_type=type_map.get(buf_type_key, BufferType.TIME),
-                duration_hours=_float_val(r.get("duration_hours", 0.0)),
-                green_zone=_float_val(r.get("green_zone", 0.0)),
-                yellow_zone=_float_val(r.get("yellow_zone", 0.0)),
-                red_zone=_float_val(r.get("red_zone", 0.0)),
-            ))
-        return bufs
-
     async def _fetch_process_routes(self) -> list[ProcessRoute]:
         """从 HAP process_route 表读取工艺路径（deprecated，请使用 _fetch_product_processes + _fetch_line_process_configs）。"""
         ws_id = WORKSHEET_IDS.get("process_route", "")
@@ -670,7 +866,6 @@ class ScheduleService:
             logger.warning("process_route 工作表 ID 未配置，跳过")
             return []
         rows = await self._fetch_all_rows(ws_id)
-        # 工艺路径可能有多行对应同一 product_id，需按 product_id 聚合步骤
         route_map: dict[str, list[ProcessStep]] = {}
         route_id_map: dict[str, str] = {}
         for r in rows:
@@ -753,7 +948,7 @@ class ScheduleService:
         )
         return result
 
-    # ── 结果推送 ──────────────────────────────────────────────────────────
+    # ── 结果推送（V3: 写入本地 DB + 触发同步）──────────────────────────────
 
     async def push_results(
         self,
@@ -762,34 +957,383 @@ class ScheduleService:
         problem: SchedulingProblem | None = None,
         clear_old: bool = True,
     ) -> None:
-        """将排产结果推送到 HAP（V2）。
+        """将排产结果写入本地 DB，然后触发同步到 HAP（V3）。
 
         Args:
             result: 求解结果
             plan_id: 方案 ID
             clear_old: 是否清空旧数据
         """
-        ws_result = WORKSHEET_IDS.get("schedule_result", "")
-        ws_plan = WORKSHEET_IDS.get("schedule_plan", "")
-        ws_demand_plan = WORKSHEET_IDS.get("demand_plan", "")
+        # 1. 写入 schedule_results 表
+        if result.tasks:
+            await self._batch_write_tasks(result.tasks, plan_id, problem)
 
-        # 1. 清空 schedule_result 表旧数据（可选）
-        if clear_old and ws_result:
-            await self._clear_worksheet(ws_result)
+        # 2. 更新 demand_plans 表的已排数量
+        if result.tasks:
+            await self._update_scheduled_quantities(result.tasks)
 
-        # 2. 批量写入 ScheduledTask 到 schedule_result 表
-        if ws_result and result.tasks:
-            await self._batch_write_tasks(ws_result, result.tasks, plan_id, problem)
+        # 3. 写入 schedule_plans 表的方案信息
+        await self._write_plan_info(result, plan_id)
 
-        # 3. 更新 demand_plan 表的已排数量
-        if ws_demand_plan and result.tasks:
-            await self._update_scheduled_quantities(ws_demand_plan, result.tasks)
+        # 4. 触发同步到 HAP（异步，不阻塞排产结果返回）
+        try:
+            from app.services.sync_service import SyncService
+            sync_svc = SyncService()
+            asyncio.create_task(sync_svc.push_to_hap("schedule_results"))
+            asyncio.create_task(sync_svc.push_to_hap("schedule_plans"))
+            asyncio.create_task(sync_svc.push_to_hap("demand_plans"))
+            asyncio.create_task(sync_svc.push_to_hap("process_schedule_orders"))
+            logger.info("HAP 同步已提交后台异步执行")
+        except Exception as e:
+            logger.warning("触发 HAP 同步失败（结果已写入本地 DB）: {}", e)
 
-        # 4. 写入 schedule_plan 表的方案信息
-        if ws_plan:
-            await self._write_plan_info(ws_plan, result, plan_id)
+        logger.info("排产结果写入完成(V3), plan_id={}", plan_id)
 
-        logger.info("排产结果推送完成(V2), plan_id={}", plan_id)
+    async def _generate_process_schedule_orders(
+        self,
+        plan_id: str,
+        tasks: list[ScheduledTask],
+    ) -> None:
+        """按 demand_id + product_id 分组排产任务，生成工序排产单（ProcessScheduleOrder）。
+
+        同时更新对应 ScheduleResult 的 pso_id 字段。
+        """
+        from collections import defaultdict
+
+        # 按 demand_id + product_id 分组
+        group_map: dict[tuple[str, str], list[ScheduledTask]] = defaultdict(list)
+        for t in tasks:
+            demand_id = t.order_item_id or t.item_id or ""
+            product_id = t.product_id or ""
+            if demand_id and product_id:
+                group_map[(demand_id, product_id)].append(t)
+
+        if not group_map:
+            logger.warning("无有效排产任务可生成工序排产单")
+            return
+
+        today_str = datetime.now().strftime("%Y%m%d%H%M%S")  # 精确到秒，避免唯一约束冲突
+        seq_counter = 0  # 全局序号计数器，用于 pso_code
+
+        # 构建任务到 pso_id 的映射，用于后续更新 ScheduleResult
+        task_pso_map: dict[tuple[str, str, str, str], str] = {}  # (demand_id, product_id, process_id, line_id) -> pso_id
+
+        async with async_session() as session:
+            for (demand_id, product_id), group_tasks in group_map.items():
+                # 按 seq 排序
+                sorted_tasks = sorted(group_tasks, key=lambda t: t.seq or t.step_order or t.step_no or 0)
+
+                prev_pso_id = None
+                prev_pso_quantity = 0
+
+                for t in sorted_tasks:
+                    qty = int(round(t.quantity)) if t.quantity else 0
+                    process_id = t.process_id or ""
+                    line_id = t.workcenter_id or ""
+                    seq_val = t.seq or t.step_order or t.step_no or 0
+
+                    # pso_quantity: 首道工序取自身排产数量，后道工序取 min(前道, 本道)
+                    if prev_pso_id is None:
+                        pso_quantity = qty
+                    else:
+                        pso_quantity = min(prev_pso_quantity, qty)
+
+                    seq_counter += 1
+                    pso_code = f"PSO-{today_str}-{seq_counter:03d}"
+
+                    pso_id = str(uuid.uuid4())
+
+                    # 构建日期和时间段（与 ScheduleResult 一致）
+                    pso_date_val = None
+                    if t.start_time:
+                        if isinstance(t.start_time, str):
+                            try:
+                                pso_date_val = datetime.strptime(t.start_time[:10], "%Y-%m-%d").date()
+                            except ValueError:
+                                pass
+                        elif hasattr(t.start_time, 'date'):
+                            pso_date_val = t.start_time.date()
+
+                    pso_time_slot = ""
+                    if t.start_time and t.end_time:
+                        st_str = t.start_time.strftime('%H:%M') if hasattr(t.start_time, 'strftime') else str(t.start_time)
+                        et_str = t.end_time.strftime('%H:%M') if hasattr(t.end_time, 'strftime') else str(t.end_time)
+                        pso_time_slot = f"{st_str}-{et_str}"
+
+                    pso = ORMProcessScheduleOrder(
+                        id=pso_id,
+                        pso_code=pso_code,
+                        demand_id=demand_id,
+                        product_id=product_id,
+                        process_id=process_id,
+                        seq=seq_val,
+                        line_id=line_id,
+                        prev_pso_id=prev_pso_id,
+                        plan_id=plan_id,
+                        pso_date=pso_date_val,
+                        pso_time_slot=pso_time_slot or None,
+                        pso_quantity=pso_quantity,
+                        pso_completed_qty=0,
+                        pso_unfinished_qty=pso_quantity,
+                        pso_status="已排产",
+                        dependency_type=t.dependency_type or None,
+                        wait_time=t.wait_time or None,
+                        sync_status=SyncStatus.PENDING_CREATE,
+                    )
+                    session.add(pso)
+
+                    # 记录映射关系
+                    task_key = (demand_id, product_id, process_id, line_id)
+                    task_pso_map[task_key] = pso_id
+
+                    # 更新链式关系
+                    prev_pso_id = pso_id
+                    prev_pso_quantity = pso_quantity
+
+            # 更新 ScheduleResult 的 pso_id
+            # 查询当前 plan_id 下的所有 ScheduleResult
+            sr_result = await session.execute(
+                select(ORMScheduleResult).where(ORMScheduleResult.plan_id == plan_id)
+            )
+            sr_rows = sr_result.scalars().all()
+            updated_count = 0
+            for sr in sr_rows:
+                sr_key = (sr.demand_id or "", sr.product_id or "", sr.process_id or "", sr.line_id or "")
+                pso_id = task_pso_map.get(sr_key)
+                if pso_id:
+                    sr.pso_id = pso_id
+                    updated_count += 1
+
+            await session.commit()
+
+        logger.info(
+            "生成工序排产单 {} 条, 更新 ScheduleResult.pso_id {} 条",
+            seq_counter, updated_count,
+        )
+
+    async def _batch_write_tasks(
+        self,
+        tasks: list[ScheduledTask],
+        plan_id: str,
+        problem: SchedulingProblem | None = None,
+    ) -> None:
+        """批量写入排产结果到本地 schedule_results 表。"""
+        # 构建时间槽索引映射
+        slot_map: dict[int, TimeSlot] = {}
+        if problem and problem.time_slots:
+            for ts in problem.time_slots:
+                idx = ts.index if ts.index is not None else (ts.slot_id if ts.slot_id is not None else 0)
+                slot_map[idx] = ts
+
+        # 构建产线工艺配置索引：(line_id, process_id) → LineProcessConfig
+        lpc_map: dict[tuple[str, str], LineProcessConfig] = {}
+        if problem and problem.line_process_configs:
+            for lpc in problem.line_process_configs:
+                lpc_map[(lpc.line_id, lpc.process_id)] = lpc
+
+        # 构建产品工艺索引：(product_id, process_id) → ProductProcess
+        pp_map: dict[tuple[str, str], ProductProcess] = {}
+        if problem and problem.product_processes:
+            for pp in problem.product_processes:
+                pp_map[(pp.product_id, pp.process_id)] = pp
+
+        # 节拍计算过程变量日志
+        beat_logs: list[str] = []
+
+        async with async_session() as session:
+            # 清空旧数据
+            await session.execute(delete(ORMScheduleResult).where(ORMScheduleResult.plan_id == plan_id))
+
+            for t in tasks:
+                # 映射时间槽索引到实际时间
+                slot_idx = t.time_slot if t.time_slot is not None else (t.slot_id if t.slot_id is not None else 0)
+                ts = slot_map.get(slot_idx)
+
+                # 构建时间槽显示文本
+                # V3: 5分钟级时间槽，显示 "YYYY-MM-DD HH:MM-HH:MM"
+                time_slot_text = ""
+                if ts and ts.date:
+                    # 优先从 TimeSlot 的 start_time/end_time 获取5分钟级时段
+                    st = ts.start_time if ts.start_time else ""
+                    et = ts.end_time if ts.end_time else ""
+                    if st and et:
+                        time_slot_text = f"{ts.date} {st}-{et}"
+                    elif ts.hour == 0:
+                        # 回退: 日级时间槽
+                        time_slot_text = f"{ts.date} 全天"
+                    else:
+                        # 回退: 小时级时间槽
+                        time_slot_text = f"{ts.date} {ts.hour:02d}:00-{ts.hour + 1:02d}:00"
+                elif t.start_time and t.end_time:
+                    # V3: 兼容字符串和日期对象
+                    st_str = t.start_time.strftime('%H:%M') if hasattr(t.start_time, 'strftime') else str(t.start_time)
+                    et_str = t.end_time.strftime('%H:%M') if hasattr(t.end_time, 'strftime') else str(t.end_time)
+                    time_slot_text = f"{st_str}-{et_str}"
+
+                # 构建日期
+                sr_date_val = None
+                if t.start_time:
+                    # V3: start_time 可能是字符串（如 "2026-07-11"）或 date/datetime 对象
+                    if isinstance(t.start_time, str):
+                        try:
+                            sr_date_val = datetime.strptime(t.start_time[:10], "%Y-%m-%d").date()
+                        except ValueError:
+                            pass
+                    elif hasattr(t.start_time, 'date'):
+                        sr_date_val = t.start_time.date()
+                elif ts and ts.date:
+                    try:
+                        sr_date_val = datetime.strptime(ts.date, "%Y-%m-%d").date()
+                    except ValueError:
+                        pass
+
+                # ── 节拍计算过程变量 ──
+                line_id = t.workcenter_id or ""
+                process_id = t.process_id or ""
+                product_id = t.product_id or ""
+                qty = int(round(t.quantity))
+
+                lpc = lpc_map.get((line_id, process_id))
+                pp = pp_map.get((product_id, process_id))
+
+                # V3修复: 获取设备数（与 solver_ortools.py:1016/1724 保持一致）
+                # 非自动工艺的 beat_count 应考虑设备并行度，避免与求解器算的 duration 不一致
+                equipment_count = (
+                    lpc.equipment_count if lpc and lpc.equipment_count and lpc.equipment_count > 0 else 1
+                )
+
+                # V3: auto_type 优先从 ProductProcess 获取（跟产品走），其次从 LineProcessConfig 获取
+                # 如果 pp 查找失败，回退到 ScheduledTask 对象上的属性（由 solver 计算）
+                auto_type = (
+                    (pp.auto_type if pp and pp.auto_type else "")
+                    or (lpc.auto_type if lpc and lpc.auto_type else "")
+                    or t.auto_type
+                    or "非自动"
+                )
+                max_units = (pp.max_units_per_beat if pp and pp.max_units_per_beat else 0) or t.max_units_per_beat or 1
+                cycle_time = (pp.cycle_time if pp and pp.cycle_time else 0.0) or t.cycle_time or 0.0
+                # V3修复: pp 查找失败时回退到 t.prep_time（由 solver_ortools.py V3 路径正确赋值）
+                prep_time = (pp.prep_time if pp and pp.prep_time else 0.0) or t.prep_time or 0.0
+
+                if auto_type == "自动":
+                    # 自动：节拍数 = ceil(qty / max_units_per_beat)
+                    beat_count = -(-qty // max_units) if max_units > 0 else qty  # 向上取整
+                    # 每轮 = cycle_time + prep_time(换治具, 分钟转秒)
+                    total_time = beat_count * (cycle_time + prep_time * 60)
+                else:
+                    # 非自动：节拍数 = ceil(qty / equipment_count)（与 solver_ortools.py:1023 一致）
+                    beat_count = -(-qty // equipment_count) if equipment_count > 0 else qty  # 向上取整
+                    # 总时间 = beat_count * cycle_time + prep_time(一次性准备, 分钟转秒)
+                    total_time = beat_count * cycle_time + prep_time * 60
+
+                # 填充到 task 对象
+                t.auto_type = auto_type
+                t.cycle_time = cycle_time
+                t.max_units_per_beat = max_units
+                t.beat_count = beat_count
+                t.total_time = total_time
+
+                # 记录日志（只记前10条避免刷屏）
+                if len(beat_logs) < 10:
+                    beat_logs.append(
+                        f"  {product_id[:8]}... | {process_id[:8]}... | {auto_type} | "
+                        f"qty={qty} | max_units={max_units} | cycle={cycle_time}s | "
+                        f"beats={beat_count} | total={total_time}s"
+                    )
+
+                sr = ORMScheduleResult(
+                    plan_id=plan_id,
+                    product_id=t.product_id or "",
+                    process_id=t.process_id or "",
+                    line_id=t.workcenter_id or "",
+                    demand_id=t.order_item_id or t.item_id or None,
+                    sr_date=sr_date_val,
+                    sr_time_slot=time_slot_text or None,
+                    sr_quantity=qty,
+                    sr_status="待确认",
+                    sr_completed_qty=0,
+                    sr_unfinished_qty=qty,
+                    process_code=t.process_code or None,
+                    constraint_type=t.constraint_type or None,
+                    seq=t.step_order or t.step_no or t.seq or None,
+                    dependency_type=t.dependency_type or None,
+                    wait_time=t.wait_time or None,
+                    prep_time=t.prep_time or None,
+                    sync_status=SyncStatus.PENDING_CREATE,
+                )
+                session.add(sr)
+
+            await session.commit()
+
+        # 输出节拍计算过程变量
+        if beat_logs:
+            logger.info("=== 节拍计算过程变量（前10条）===")
+            for log_line in beat_logs:
+                logger.info(log_line)
+            if len(tasks) > 10:
+                logger.info("  ... 共 {} 条任务", len(tasks))
+
+        logger.info("写入排产结果 {} 条", len(tasks))
+
+    async def _update_scheduled_quantities(
+        self,
+        tasks: list[ScheduledTask],
+    ) -> None:
+        """更新本地 demand_plans 表的已排数量。
+
+        V3.1: scheduled_qty 不再累加，改为从当前批次的首道工序数量设置。
+        排产数量控制完全由 completed_qty + remaining_qty 决定。
+        scheduled_qty 仅用于显示"本次排产数量"。
+        """
+        # 按 demand_plan_id 分组，取首道工序数量（同一需求所有工序数量相同）
+        from app.engine.models import ProcessStep
+        qty_map: dict[str, float] = {}
+        for t in tasks:
+            oid = t.order_item_id or t.item_id
+            if oid:
+                # 取首道工序（seq最小）的数量
+                current = qty_map.get(oid, 0.0)
+                if current == 0.0:
+                    qty_map[oid] = t.quantity
+
+        async with async_session() as session:
+            for oid, qty in qty_map.items():
+                dp = await session.get(ORMDemandPlan, oid)
+                if dp:
+                    # 不再累加，直接设为本批次排产数量
+                    dp.scheduled_qty = int(round(qty))
+                    dp.sync_status = SyncStatus.PENDING_UPDATE
+            await session.commit()
+        logger.info("更新 {} 个需求计划的排产数量（scheduled_qty）", len(qty_map))
+
+    async def _write_plan_info(
+        self,
+        result: SolveResult,
+        plan_id: str,
+    ) -> None:
+        """写入本地 schedule_plans 表的方案信息。"""
+        async with async_session() as session:
+            sp = ORMSchedulePlan(
+                sp_name=plan_id,
+                sp_status=result.status.value,
+                sp_solve_status=result.status.value,
+                sp_solve_time=result.solve_time_seconds,
+                sp_task_count=len(result.tasks),
+                sp_total_output=len(result.tasks),
+                sync_status=SyncStatus.PENDING_CREATE,
+            )
+            if result.objective_values:
+                obj = result.objective_values
+                if "otd_rate" in obj:
+                    try:
+                        sp.sp_total_output = int(round(float(obj.get("otd_rate", 0)) * 100))
+                    except (ValueError, TypeError):
+                        pass
+            session.add(sp)
+            await session.commit()
+        logger.info("写入方案信息: plan_id={}", plan_id)
+
+    # ── HAP 写入辅助方法（保留，V1 兼容）──────────────────────────────────
 
     async def _get_field_id_map(self, worksheet_id: str) -> dict[str, str]:
         """获取工作表 alias→fieldId 映射。"""
@@ -815,7 +1359,6 @@ class ScheduleService:
         if not row_ids:
             logger.info("清空工作表 {} 完成，无需删除", worksheet_id)
             return
-        # HAP 批量删除每次最多 100 条
         for i in range(0, len(row_ids), 100):
             batch = row_ids[i : i + 100]
             try:
@@ -829,184 +1372,55 @@ class ScheduleService:
                         logger.warning("删除行 {} 失败: {}", rid, e2)
         logger.info("清空工作表 {} 完成，共删除 {} 行", worksheet_id, len(row_ids))
 
-    async def _batch_write_tasks(
-        self,
-        worksheet_id: str,
-        tasks: list[ScheduledTask],
-        plan_id: str,
-        problem: SchedulingProblem | None = None,
-    ) -> None:
-        """批量写入排产结果到 HAP（V2 格式）。"""
-        # 获取字段 ID 映射
-        field_map = await self._get_field_id_map(worksheet_id)
-
-        # 构建时间槽索引映射
-        slot_map: dict[int, TimeSlot] = {}
-        if problem and problem.time_slots:
-            for ts in problem.time_slots:
-                idx = ts.index if ts.index is not None else (ts.slot_id if ts.slot_id is not None else 0)
-                slot_map[idx] = ts
-
-        batch_size = 100
-        for i in range(0, len(tasks), batch_size):
-            batch = tasks[i : i + batch_size]
-            rows = []
-            for t in batch:
-                # 映射时间槽索引到实际时间
-                slot_idx = t.time_slot if t.time_slot is not None else (t.slot_id if t.slot_id is not None else 0)
-                ts = slot_map.get(slot_idx)
-
-                # 构建时间槽显示文本
-                time_slot_text = ""
-                if t.start_time and t.end_time:
-                    time_slot_text = f"{t.start_time.strftime('%H:%M')}-{t.end_time.strftime('%H:%M')}"
-                elif ts and ts.date:
-                    time_slot_text = f"{ts.date} {ts.hour:02d}:00-{ts.hour + 1:02d}:00"
-
-                # 构建日期文本
-                date_text = ""
-                if t.start_time:
-                    date_text = t.start_time.strftime("%Y-%m-%d")
-                elif ts and ts.date:
-                    date_text = ts.date
-
-                # V2 字段别名
-                data: dict[str, Any] = {
-                    "sr_code": plan_id,
-                    "sr_seq": str(t.step_order or t.step_no or t.seq or 1),
-                    "sr_qty": str(int(round(t.quantity))),
-                    "sr_date": date_text,
-                    "sr_time_slot": time_slot_text,
-                    "sr_status": ["b3112bdf-b964-4c38-a906-cf986edef4d3"],  # 待生产
-                }
-                # 关联字段需要传 rowId
-                if t.order_item_id or t.item_id:
-                    data["sr_demand_plan"] = t.order_item_id or t.item_id
-                if t.product_id:
-                    data["sr_product"] = t.product_id
-                if t.workcenter_id:
-                    data["sr_line"] = t.workcenter_id
-                if t.process_id:
-                    data["sr_process"] = t.process_id
-
-                rows.append({"fields": self._build_fields_array(field_map, data)})
-            try:
-                await self._hap.batch_create_rows(worksheet_id, rows)
-            except Exception as e:
-                logger.error("批量写入排产结果失败 (batch {}): {}", i // batch_size, e)
-                raise
-        logger.info("写入排产结果 {} 条", len(tasks))
-
-    async def _update_scheduled_quantities(
-        self,
-        worksheet_id: str,
-        tasks: list[ScheduledTask],
-    ) -> None:
-        """更新 demand_plan 表的已排数量（V2）。"""
-        field_map = await self._get_field_id_map(worksheet_id)
-        # 按 demand_plan_id 聚合已排数量
-        qty_map: dict[str, float] = {}
-        for t in tasks:
-            oid = t.order_item_id or t.item_id
-            qty_map[oid] = qty_map.get(oid, 0.0) + t.quantity
-
-        # 逐行更新（HAP 不支持按条件批量更新不同值）
-        for oid, qty in qty_map.items():
-            try:
-                fields = self._build_fields_array(field_map, {"scheduled_qty": str(int(round(qty)))})
-                await self._hap.update_row(worksheet_id, oid, fields)
-            except Exception as e:
-                logger.warning("更新 demand_plan {} 已排数量失败: {}", oid, e)
-        logger.info("更新 {} 个需求计划的已排数量", len(qty_map))
-
-    async def _write_plan_info(
-        self,
-        worksheet_id: str,
-        result: SolveResult,
-        plan_id: str,
-    ) -> None:
-        """写入 schedule_plan 表的方案信息。"""
-        field_map = await self._get_field_id_map(worksheet_id)
-        data: dict[str, Any] = {
-            "plan_code": plan_id,
-            "plan_status": result.status.value,
-            "total_output": str(len(result.tasks)),
-            "create_time": datetime.now().strftime("%Y-%m-%d"),
-        }
-        if result.objective_values:
-            obj = result.objective_values
-            if "otd_rate" in obj:
-                data["otd_rate"] = str(round(float(obj["otd_rate"]), 2))
-            if "changeover_count" in obj:
-                data["changeover_count"] = str(int(float(obj["changeover_count"])))
-            if "balance_rate" in obj:
-                data["balance_rate"] = str(round(float(obj["balance_rate"]), 2))
-        fields = self._build_fields_array(field_map, data)
-        try:
-            await self._hap.create_row(worksheet_id, fields)
-        except Exception as e:
-            logger.error("写入方案信息失败: {}", e)
-            raise
-
     # ── 任务管理 ──────────────────────────────────────────────────────────
 
     async def insert_urgent_order(
         self, product_id: str, quantity: int, due_date: str, remark: str = "",
     ) -> dict[str, Any]:
-        """紧急插单：向 HAP 需求计划表写入一条紧急需求。
+        """紧急插单：向本地 demand_plans 表写入一条紧急需求，然后触发同步。
 
         Args:
-            product_id: 产品 ID（HAP 产品主数据 rowId）
+            product_id: 产品 ID（本地 DB UUID）
             quantity: 需求数量
             due_date: 交期日期 YYYY-MM-DD
             remark: 备注
 
         Returns:
-            dict: 包含 row_id 和 dp_code 的响应
+            dict: 包含 id 和 dp_code 的响应
         """
-        ws_id = WORKSHEET_IDS.get("demand_plan", "")
-        if not ws_id:
-            raise ValueError("demand_plan 工作表 ID 未配置")
-
-        # 获取字段映射和结构
-        field_map = await self._get_field_id_map(ws_id)
-        struct = await self._hap.get_worksheet_structure(ws_id)
-        fields_def = struct.get("data", {}).get("fields", [])
-
-        # 查找选项字段的 key 值
-        def _find_option_key(alias: str, target_value: str) -> str:
-            for f in fields_def:
-                if f.get("alias") == alias:
-                    for opt in f.get("options", []) or []:
-                        if opt.get("value") == target_value:
-                            return opt.get("key", "")
-            return ""
-
-        priority_key = _find_option_key("dp_priority", "紧急")
-        status_key = _find_option_key("dp_status", "待确认")
-
-        # 生成需求编码
         now = datetime.now()
         dp_code = f"URGENT-{now.strftime('%Y%m%d%H%M%S')}"
 
-        # 构建字段数据
-        data: dict[str, Any] = {
-            "dp_code": dp_code,
-            "dp_product": [product_id],  # 关联字段传 [rowId]
-            "dp_quantity": str(quantity),
-            "dp_due_date": due_date,
-            "dp_remark": remark or "紧急插单",
-        }
-        if priority_key:
-            data["dp_priority"] = [priority_key]
-        if status_key:
-            data["dp_status"] = [status_key]
+        try:
+            due_date_val = datetime.strptime(due_date, "%Y-%m-%d").date()
+        except ValueError:
+            due_date_val = None
 
-        fields_array = self._build_fields_array(field_map, data)
-        result = await self._hap.create_row(ws_id, fields_array)
-        row_id = result.get("data", {}).get("id", "") if isinstance(result.get("data"), dict) else ""
-        logger.info("紧急插单成功: dp_code={}, row_id={}", dp_code, row_id)
-        return {"row_id": row_id, "dp_code": dp_code}
+        async with async_session() as session:
+            dp = ORMDemandPlan(
+                dp_code=dp_code,
+                product_id=product_id,
+                quantity=quantity,
+                priority="紧急",
+                status="待排",
+                due_date=due_date_val,
+                remark=remark or "紧急插单",
+                sync_status=SyncStatus.PENDING_CREATE,
+            )
+            session.add(dp)
+            await session.commit()
+            dp_id = dp.id
+
+        # 触发同步到 HAP
+        try:
+            from app.services.sync_service import SyncService
+            sync_svc = SyncService()
+            await sync_svc.push_to_hap("demand_plans")
+        except Exception as e:
+            logger.warning("紧急插单 HAP 同步失败（已写入本地 DB）: {}", e)
+
+        logger.info("紧急插单成功: dp_code={}, id={}", dp_code, dp_id)
+        return {"row_id": dp_id, "dp_code": dp_code}
 
     async def create_schedule(self, request: Any) -> str:
         """创建排产任务，异步执行完整流程：拉取数据 → 求解 → 推送结果。
@@ -1034,28 +1448,64 @@ class ScheduleService:
     async def _run_schedule(self, task_id: str, request: Any) -> None:
         """后台执行排产任务。"""
         try:
-            # 1. 拉取数据
+            # 0. 清理旧的"待确认"排产结果（上一次排产未确认的临时数据）
+            async with async_session() as clean_session:
+                old_pending = await clean_session.execute(
+                    select(ORMScheduleResult).where(ORMScheduleResult.sr_status == "待确认")
+                )
+                old_count = 0
+                for sr in old_pending.scalars().all():
+                    await clean_session.delete(sr)
+                    old_count += 1
+                if old_count > 0:
+                    logger.info("清理旧待确认排产结果: {} 条", old_count)
+                await clean_session.commit()
+
+            # 1. 拉取数据（V3.3: 提前读取 scheduling_mode，影响时间槽粒度）
             self._tasks[task_id]["progress"] = 10
+            solver_params_preview = getattr(request, "solver_params", {}) or {}
+            scheduling_mode_preview = solver_params_preview.get("scheduling_mode", "capacity")
             problem = await self.fetch_scheduling_data(
                 start_date=getattr(request, "start_time", None),
                 end_date=getattr(request, "end_time", None),
+                scheduling_mode=scheduling_mode_preview,
             )
 
             # 2. 求解
             self._tasks[task_id]["progress"] = 50
             solver_type = getattr(request, "solver_type", None) or "ortools"
-            config = {}
+
+            # 从系统配置读取硬规则/软规则/权重（前端排产请求不传这些字段）
+            from app.core.app_config import get_solver_config
+            sys_config = get_solver_config()
+            config: dict[str, Any] = {
+                "hard_rules": sys_config.get("hard_rules", []),
+                "soft_rules": sys_config.get("soft_rules", []),
+            }
+            # soft_rule_weights → objective_weights（字段名统一）
+            soft_weights = sys_config.get("soft_rule_weights", {})
+            if soft_weights:
+                config["objective_weights"] = dict(soft_weights)
+
+            # request 中的值覆盖系统配置（如果前端传了的话）
             if hasattr(request, "constraints") and request.constraints:
-                config["hard_rules"] = request.constraints.get("hard_rules", [])
-                config["soft_rules"] = request.constraints.get("soft_rules", [])
+                if request.constraints.get("hard_rules"):
+                    config["hard_rules"] = request.constraints["hard_rules"]
+                if request.constraints.get("soft_rules"):
+                    config["soft_rules"] = request.constraints["soft_rules"]
             if hasattr(request, "objective_weights") and request.objective_weights:
                 config["objective_weights"] = request.objective_weights
+
+            logger.info(
+                "排产配置: solver={}, hard_rules={}, soft_rules={}, objective_weights={}",
+                solver_type, config.get("hard_rules"), config.get("soft_rules"),
+                config.get("objective_weights"),
+            )
 
             # 冻结窗口：前 N 天的时间槽被锁定
             freeze_horizon = getattr(request, "freeze_horizon", 0) or 0
             if freeze_horizon > 0:
                 config["freeze_horizon"] = freeze_horizon
-                # 启用 FREEZE_WINDOW 硬规则
                 if "hard_rules" not in config:
                     config["hard_rules"] = []
                 if "FREEZE_WINDOW" not in config["hard_rules"]:
@@ -1072,7 +1522,11 @@ class ScheduleService:
             plan_id = f"PLAN-{task_id[:8]}"
             await self.push_results(result, plan_id, problem)
 
-            # 4. 更新任务状态
+            # 4. 生成工序排产单
+            if result.tasks:
+                await self._generate_process_schedule_orders(plan_id, result.tasks)
+
+            # 5. 更新任务状态
             self._tasks[task_id].update({
                 "status": "SUCCESS",
                 "progress": 100,
@@ -1128,6 +1582,88 @@ class ScheduleService:
             task["completed_at"] = datetime.now()
             logger.info("排产任务 {} 已取消", task_id)
 
+    async def confirm_schedule(self, task_id: str) -> dict:
+        """确认排产结果：状态改为待生产，并自动生成报工单。
+
+        同时更新工序排产单状态（已排产→待生产）和需求计划状态（待确认→待生产）。
+        """
+        plan_id = f"PLAN-{task_id[:8]}" if not task_id.startswith("PLAN-") else task_id
+        async with async_session() as session:
+            result = await session.execute(
+                select(ORMScheduleResult).where(ORMScheduleResult.plan_id == plan_id)
+            )
+            results = result.scalars().all()
+            if not results:
+                return {"confirmed": 0, "report_orders": 0}
+
+            report_count = 0
+            pso_updated = 0
+            demand_updated = 0
+            for sr in results:
+                if sr.sr_status in ("待确认", None):
+                    sr.sr_status = "待生产"
+                    sr.sync_status = SyncStatus.PENDING_UPDATE
+
+                # 更新关联的工序排产单状态
+                if sr.pso_id:
+                    pso = await session.get(ORMProcessScheduleOrder, sr.pso_id)
+                    if pso and pso.pso_status in ("已排产",):
+                        pso.pso_status = "待生产"
+                        pso.sync_status = SyncStatus.PENDING_UPDATE
+                        pso_updated += 1
+
+                # 更新关联的需求计划状态
+                if sr.demand_id:
+                    dp = await session.get(ORMDemandPlan, sr.demand_id)
+                    if dp and dp.status in ("待排", "待确认"):
+                        dp.status = "待生产"
+                        dp.sync_status = SyncStatus.PENDING_UPDATE
+                        demand_updated += 1
+
+                # 生成报工单（仅当无已有报工单时）
+                existing = await session.execute(
+                    select(ORMReportWorkOrder).where(ORMReportWorkOrder.dispatch_id == sr.id)
+                )
+                if not existing.scalars().first():
+                    # 生成报工单编号 RW-YYYYMMDD-序号
+                    from datetime import date as _date
+                    rw_code = f"RW-{_date.today().strftime('%Y%m%d')}-{sr.id[:8].upper()}"
+                    rwo = ORMReportWorkOrder(
+                        rw_code=rw_code,
+                        dispatch_id=sr.id,
+                        product_id=sr.product_id,
+                        process_id=sr.process_id,
+                        line_id=sr.line_id,
+                        rw_date=sr.sr_date,
+                        rw_time_slot=sr.sr_time_slot,
+                        rw_plan_qty=sr.sr_quantity,
+                        rw_actual_qty=0,
+                        rw_defect_qty=0,
+                        rw_status="待报工",
+                        sync_status=SyncStatus.PENDING_CREATE,
+                    )
+                    session.add(rwo)
+                    report_count += 1
+
+            await session.commit()
+
+        # 触发同步到 HAP
+        try:
+            from app.services.sync_service import SyncService
+            sync_svc = SyncService()
+            asyncio.create_task(sync_svc.push_to_hap("schedule_results"))
+            asyncio.create_task(sync_svc.push_to_hap("process_schedule_orders"))
+            asyncio.create_task(sync_svc.push_to_hap("demand_plans"))
+            asyncio.create_task(sync_svc.push_to_hap("report_work_orders"))
+        except Exception as e:
+            logger.warning("确认排产 HAP 同步触发失败: {}", e)
+
+        logger.info(
+            "确认排产: task_id={}, 确认{}条, 生成报工单{}条, 更新工序排产单{}条, 更新需求计划{}条",
+            task_id, len(results), report_count, pso_updated, demand_updated,
+        )
+        return {"confirmed": len(results), "report_orders": report_count, "pso_updated": pso_updated, "demand_updated": demand_updated}
+
     async def list_schedules(
         self,
         page: int = 1,
@@ -1135,7 +1671,7 @@ class ScheduleService:
     ) -> dict[str, Any]:
         """查询排产任务列表（分页）。
 
-        优先从内存读取，内存为空时从 HAP 排产方案表读取。
+        优先从内存读取，内存为空时从本地 schedule_plans 表读取。
 
         Args:
             page: 页码，从 1 开始
@@ -1146,33 +1682,32 @@ class ScheduleService:
         """
         all_items = list(self._tasks.values())
 
-        # 内存为空时从 HAP 排产方案表读取
+        # 内存为空时从本地 DB 排产方案表读取
         if not all_items:
-            ws_plan = WORKSHEET_IDS.get("schedule_plan", "")
-            if ws_plan:
-                try:
-                    rows = await self._fetch_all_rows(ws_plan)
-                    for r in rows:
-                        plan_code = _str_val(r.get("plan_code", ""))
-                        # 从 plan_code 解析 task_id (如 PLAN-4a0ac8b1 → 4a0ac8b1)
-                        task_id = plan_code.replace("PLAN-", "") if plan_code else r.get("rowId", "")
+            try:
+                async with async_session() as session:
+                    result = await session.execute(select(ORMSchedulePlan))
+                    plans = result.scalars().all()
+                    for r in plans:
+                        plan_code = r.sp_name or ""
+                        task_id = plan_code.replace("PLAN-", "") if plan_code else r.id
                         all_items.append({
                             "task_id": task_id,
                             "status": "SUCCESS",
                             "progress": 100,
-                            "created_at": r.get("_createdAt", "") or _str_val(r.get("create_time", "")),
-                            "started_at": r.get("_createdAt", "") or _str_val(r.get("create_time", "")),
-                            "completed_at": r.get("_updatedAt", "") or _str_val(r.get("create_time", "")),
+                            "created_at": r.created_at,
+                            "started_at": r.created_at,
+                            "completed_at": r.updated_at,
                             "result_summary": {
                                 "plan_id": plan_code,
-                                "solve_status": "OPTIMAL",
-                                "task_count": int(_float_val(r.get("total_output", 0))),
-                                "solve_time_seconds": 0,
-                                "solver_name": "ortools-cp-sat",
+                                "solve_status": r.sp_solve_status or "OPTIMAL",
+                                "task_count": r.sp_task_count or 0,
+                                "solve_time_seconds": r.sp_solve_time or 0,
+                                "solver_name": r.sp_solver or "ortools-cp-sat",
                             },
                         })
-                except Exception as e:
-                    logger.warning("从 HAP 读取排产方案失败: {}", e)
+            except Exception as e:
+                logger.warning("从本地 DB 读取排产方案失败: {}", e)
 
         total = len(all_items)
         start = (page - 1) * size

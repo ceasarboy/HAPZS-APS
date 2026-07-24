@@ -14,6 +14,44 @@ export interface ScheduleResult {
   loadRates: LoadRateInfo[];
   /** OTD率 */
   otdRate: number;
+  /** 规则评分报告 */
+  ruleReport?: RuleReport;
+}
+
+/** 硬规则遵守性项 */
+export interface HardRuleItem {
+  /** 规则名称 */
+  name: string;
+  /** 规则编码 */
+  code: string;
+  /** 遵守状态 PASS/FAIL */
+  status: string;
+  /** 违反次数 */
+  violations: number;
+  /** 详情说明 */
+  detail: string;
+}
+
+/** 软规则评分项 */
+export interface SoftScoreItem {
+  /** 规则名称 */
+  name: string;
+  /** 评分 0-1 */
+  score: number;
+  /** 详情说明 */
+  detail: string;
+  /** 权重 */
+  weight: number;
+}
+
+/** 规则评分报告 */
+export interface RuleReport {
+  /** 硬规则列表 */
+  hard_rules: HardRuleItem[];
+  /** 硬规则违反总数 */
+  hard_violations: number;
+  /** 软规则评分 */
+  soft_scores: Record<string, SoftScoreItem>;
 }
 
 /** 产线计划 */
