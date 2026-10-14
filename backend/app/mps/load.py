@@ -1,4 +1,10 @@
-"""周负荷与产线瓶颈（移植自 mps-web src/schedule.js weeklyLoad / lineBottleneck）。"""
+"""周负荷与产线瓶颈（移植自 mps-web src/schedule.js weeklyLoad / lineBottleneck）。
+
+与 schedule.js 的已知微观差异（均不在业务数据路径上）：
+1) flux_base 聚合：JS Math.max 对 None/undefined 传播 NaN；本实现 `or 0` 归 0（业务恒为数值）；
+2) orders.code 取 r["order"]["code"]（kernel 输出中与 process.code 同值；缺键时本实现 KeyError 而非 undefined）；
+3) total_extra 未移植（mps-web 中无任何消费方）。
+"""
 from app.mps.kernel import nz
 
 

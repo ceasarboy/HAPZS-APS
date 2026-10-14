@@ -956,23 +956,28 @@ from app.mps.load import line_bottleneck, weekly_load
 P = {"week_days": 6, "peak_factor": 1.1, "use_peak": "mean"}
 
 
+DB_SEMI = {
+    "seq": 1, "step_std": "DB", "level": "模块级", "mode": "半自动DB", "wc_key": "模块级|DB",
+    "feature": "DB-芯片数N_die", "feature_key": "N_die", "usage": 60, "missing": False,
+    "flux_base": 2000, "unit": "只芯片/天", "is_bottleneck": True, "throughput": 100,
+}
+
+
+def _mk(order_no, input_qty, steps):
+    return {"order": {"order_no": order_no, "product": "P", "code": "M02-2D"}, "input_qty": input_qty,
+            "steps": steps, "bottleneck": next((s for s in steps if s.get("is_bottleneck")), None),
+            "batch": {"batch_cycle": 10, "bottleneck_days": 3}}
+
+
 def _results():
     # 构造两个工单结果（字段依赖与 mps-web 结果同构）
-    def mk(order_no, input_qty, steps):
-        return {"order": {"order_no": order_no, "product": "P"}, "input_qty": input_qty,
-                "steps": steps, "bottleneck": next((s for s in steps if s.get("is_bottleneck")), None),
-                "batch": {"batch_cycle": 10, "bottleneck_days": 3}}
-
-    db_semi = {"seq": 1, "step_std": "DB", "level": "模块级", "mode": "半自动DB", "wc_key": "模块级|DB",
-               "feature": "DB-芯片数N_die", "feature_key": "N_die", "usage": 60, "missing": False,
-               "flux_base": 2000, "unit": "只芯片/天", "is_bottleneck": True}
     wb = {"seq": 2, "step_std": "WB", "level": "模块级", "mode": "半自动WB", "wc_key": "模块级|WB",
           "feature": "WB-键合线数N_wire", "feature_key": "N_wire", "usage": 100, "missing": False,
           "flux_base": 4500, "unit": "根丝/天", "is_bottleneck": False}
     miss = {"seq": 3, "step_std": "SMT", "level": "模块级", "mode": "/", "wc_key": "模块级|SMT",
             "feature": "SMT-贴装元件数N_smt", "feature_key": "N_smt", "usage": None, "missing": True,
             "flux_base": 2400, "unit": "只/天", "is_bottleneck": False}
-    return [mk("A", 100, [db_semi, wb]), mk("B", 100, [dict(db_semi), dict(miss)])]
+    return [_mk("A", 100, [dict(DB_SEMI), wb]), _mk("B", 100, [dict(DB_SEMI), dict(miss)])]
 
 
 def test_weekly_load_and_judge():
@@ -996,16 +1001,128 @@ def test_weekly_load_peak_mode():
 
 
 def test_judge_thresholds():
+    # 边界校正（按真实算术）：恰 1.0 → 偏紧（>1 才超载）
     rows = weekly_load(_results(), {"params": dict(P)})
     d = {r["key"]: r for r in rows}
-    assert d["模块级|DB|半自动DB"]["judge"] == "偏紧"     # =1.00
-    # <0.85 正常：构造更大的可用（改 use_peak 峰值 → 13200 > 12000）
+    assert d["模块级|DB|半自动DB"]["load_rate"] == pytest.approx(1.0)
+    assert d["模块级|DB|半自动DB"]["judge"] == "偏紧"    # =1.00
+    # 峰值模式：DB 12000/13200≈0.909 → 偏紧；WB 10000/29700≈0.337 → 正常（<0.85）
     rows2 = weekly_load(_results(), {"params": {**P, "use_peak": "peak"}})
     d2 = {r["key"]: r for r in rows2}
-    assert d2["模块级|DB|半自动DB"]["judge"] == "正常"    # 12000/13200≈0.909 → 偏紧？
-```
+    assert d2["模块级|DB|半自动DB"]["available"] == pytest.approx(2000 * 1.1 * 6)
+    assert d2["模块级|DB|半自动DB"]["load_rate"] == pytest.approx(12000 / 13200)
+    assert d2["模块级|DB|半自动DB"]["judge"] == "偏紧"
+    assert d2["模块级|WB|半自动WB"]["available"] == pytest.approx(4500 * 1.1 * 6)
+    assert d2["模块级|WB|半自动WB"]["load_rate"] == pytest.approx(10000 / 29700)
+    assert d2["模块级|WB|半自动WB"]["judge"] == "正常"
+    # 超载：本测试内局部追加一单（副本，不改 _results() 本体）→ DB 18000/12000=1.5
+    results3 = _results()
+    results3.append(_mk("C", 100, [dict(DB_SEMI)]))
+    d3 = {r["key"]: r for r in weekly_load(results3, {"params": dict(P)})}
+    assert d3["模块级|DB|半自动DB"]["load"] == pytest.approx(18000)
+    assert d3["模块级|DB|半自动DB"]["load_rate"] == pytest.approx(1.5)
+    assert d3["模块级|DB|半自动DB"]["judge"] == "超载"
 
-**注意**：上面最后一条断言需按实际算术校正（12000/13200≈0.909 应判"偏紧"，实现按 0.85 阈值）。执行者请用真实算术核对后修正断言（不得放宽逻辑，只修正期望值）：`available=13200 → rate≈0.909 → "偏紧"`；"正常"案例请另构造（如 load<0.85×available 的参数组合）。
+
+def test_line_bottleneck_hits_details_join():
+    results = _results()
+    load_rows = weekly_load(results, {"params": dict(P)})
+    rows = line_bottleneck(results, load_rows)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["key"] == "模块级|DB|半自动DB"
+    assert r["level"] == "模块级" and r["op"] == "DB" and r["mode"] == "半自动DB"
+    assert r["hits"] == 2
+    assert r["total_days"] == 6          # 两单各 bottleneck_days=3
+    assert [o["order_no"] for o in r["orders"]] == ["A", "B"]
+    assert r["orders"][0]["code"] == "M02-2D" and r["orders"][0]["throughput"] == 100
+    assert r["load_rate"] == pytest.approx(1.0)
+    assert r["judge"] == "偏紧"
+
+
+def test_line_bottleneck_skip_rules():
+    results = _results()
+    results.append({"error": "x", "order": {"order_no": "E"}, "input_qty": 0,
+                    "steps": [], "bottleneck": None, "batch": {}})
+    no_bn_step = {**DB_SEMI, "is_bottleneck": False}          # F 无瓶颈步
+    results.append(_mk("F", 50, [no_bn_step]))
+    rows = line_bottleneck(results, [])
+    assert len(rows) == 1 and rows[0]["hits"] == 2 and rows[0]["total_days"] == 6
+
+
+def test_line_bottleneck_sorting_rate_then_hits_and_no_join_last():
+    wb_step = {"seq": 2, "step_std": "WB", "level": "模块级", "mode": "半自动WB", "wc_key": "模块级|WB",
+               "feature": "WB-键合线数N_wire", "feature_key": "N_wire", "usage": 100, "missing": False,
+               "flux_base": 4500, "unit": "根丝/天", "is_bottleneck": True}
+    smt_step = {"seq": 3, "step_std": "SMT", "level": "模块级", "mode": "/", "wc_key": "模块级|SMT",
+                "feature": "SMT-贴装元件数N_smt", "feature_key": "N_smt", "usage": 10, "missing": False,
+                "flux_base": 2400, "unit": "只/天", "is_bottleneck": True}
+    results = [_mk("A", 100, [dict(DB_SEMI)]), _mk("B", 100, [dict(DB_SEMI)]),
+               _mk("C", 100, [dict(wb_step)]), _mk("D", 100, [dict(smt_step)])]
+    load_rows = [
+        {"key": "模块级|DB|半自动DB", "load_rate": 0.5, "judge": "正常"},
+        {"key": "模块级|WB|半自动WB", "load_rate": 0.5, "judge": "正常"},
+    ]
+    rows = line_bottleneck(results, load_rows)
+    # rate 相等 → hits 降序（DB 2 > WB 1）；无 join 行者（SMT）load_rate/judge 为 None 且排最后
+    assert [r["key"] for r in rows] == ["模块级|DB|半自动DB", "模块级|WB|半自动WB", "模块级|SMT|/"]
+    assert rows[2]["load_rate"] is None and rows[2]["judge"] is None
+
+    load_rows2 = [
+        {"key": "模块级|DB|半自动DB", "load_rate": 0.4, "judge": "正常"},
+        {"key": "模块级|WB|半自动WB", "load_rate": 0.9, "judge": "偏紧"},
+    ]
+    rows2 = line_bottleneck(results, load_rows2)
+    assert rows2[0]["key"] == "模块级|WB|半自动WB"    # rate 优先于 hits
+
+
+def test_weekly_load_zero_flux_missing_judge():
+    results = _results()
+    results.append(_mk("Z", 10, [{
+        "seq": 1, "step_std": "调试", "level": "模块级", "mode": "/", "wc_key": "模块级|调试",
+        "feature": "工单产品数量N", "feature_key": "N", "usage": 1, "missing": False,
+        "flux_base": 0, "unit": "只/天", "is_bottleneck": False}]))
+    d = {r["key"]: r for r in weekly_load(results, {"params": dict(P)})}
+    assert d["模块级|调试|/"]["load_rate"] is None
+    assert d["模块级|调试|/"]["judge"] == "缺通量"
+
+
+def test_weekly_load_boundary_085():
+    at = weekly_load([_mk("A", 85, [dict(DB_SEMI)]), _mk("B", 85, [dict(DB_SEMI)])], {"params": dict(P)})
+    assert at[0]["load"] == pytest.approx(10200)
+    assert at[0]["judge"] == "偏紧"          # 0.85 ≥ 0.85
+
+    below = weekly_load([_mk("A", 84, [dict(DB_SEMI)]), _mk("B", 83, [dict(DB_SEMI)])], {"params": dict(P)})
+    assert below[0]["load_rate"] == pytest.approx(10020 / 12000)
+    assert below[0]["judge"] == "正常"       # 0.835 < 0.85
+
+
+def test_weekly_load_sort_orders_detail_and_defaults():
+    rows = weekly_load(_results(), {"params": dict(P)})
+    assert [r["key"] for r in rows] == ["模块级|DB|半自动DB", "模块级|WB|半自动WB", "模块级|SMT|/"]
+    db = rows[0]
+    assert db["orders"] == [
+        {"order_no": "A", "qty": 100, "usage": 60, "amount": 6000},
+        {"order_no": "B", "qty": 100, "usage": 60, "amount": 6000},
+    ]
+    # 参数缺省：week_days 默认 6；error 结果与无 wc_key 步不入聚合
+    results3 = _results()
+    results3[0]["steps"] = results3[0]["steps"] + [{"seq": 9, "wc_key": None, "missing": False, "usage": 1}]
+    results3.append({"error": True, "steps": []})
+    d3 = {r["key"]: r for r in weekly_load(results3, {})}
+    assert set(d3) == {"模块级|DB|半自动DB", "模块级|WB|半自动WB", "模块级|SMT|/"}
+    assert d3["模块级|DB|半自动DB"]["week_days"] == 6
+
+
+def test_weekly_load_scope_route_without_db():
+    wb_step = {"seq": 1, "step_std": "WB", "level": "模块级", "mode": "半自动WB", "wc_key": "模块级|WB",
+               "feature": "WB-键合线数N_wire", "feature_key": "N_wire", "usage": 100, "missing": False,
+               "flux_base": 4500, "unit": "根丝/天", "is_bottleneck": False}
+    rows = weekly_load(_results() + [_mk("R", 100, [dict(wb_step)])], {"params": dict(P)})
+    d = {r["key"]: r for r in rows}
+    assert d["模块级|DB|半自动DB"]["load"] == pytest.approx(12000)   # 路线不含 DB 的订单不参与
+    assert d["模块级|WB|半自动WB"]["load"] == pytest.approx(20000)   # 100+100
+```
 
 - [ ] **Step 4.2: 运行确认失败** → `ModuleNotFoundError: app.mps.load`。
 
@@ -1014,7 +1131,13 @@ def test_judge_thresholds():
 （1:1 移植 `schedule.js` 的 `weeklyLoad`（375-410 行）与 `lineBottleneck`（414-432 行）；`nz` 从 kernel 复用）
 
 ```python
-"""周负荷与产线瓶颈（移植自 mps-web src/schedule.js weeklyLoad / lineBottleneck）。"""
+"""周负荷与产线瓶颈（移植自 mps-web src/schedule.js weeklyLoad / lineBottleneck）。
+
+与 schedule.js 的已知微观差异（均不在业务数据路径上）：
+1) flux_base 聚合：JS Math.max 对 None/undefined 传播 NaN；本实现 `or 0` 归 0（业务恒为数值）；
+2) orders.code 取 r["order"]["code"]（kernel 输出中与 process.code 同值；缺键时本实现 KeyError 而非 undefined）；
+3) total_extra 未移植（mps-web 中无任何消费方）。
+"""
 from app.mps.kernel import nz
 
 
@@ -1090,7 +1213,7 @@ def line_bottleneck(results: list[dict], load_rows: list[dict]) -> list[dict]:
 
 - [ ] **Step 4.4: 修正测试期望值后运行通过**
 
-按 Step 4.1 注记用真实算术核对"判定边界"断言（只改期望值）。`... -m pytest tests/mps/test_kernel_load.py -v` → 预期 3 passed；全量回归 `... -m pytest tests -q`。
+按 Step 4.1 注记用真实算术核对"判定边界"断言（只改期望值）。`... -m pytest tests/mps/test_kernel_load.py -v` → 预期 10 passed（首发 3 + 质量跟进补 7）；全量回归 `... -m pytest tests -q`（预期 96 passed, 1 skipped）。
 
 - [ ] **Step 4.5: 提交**
 
