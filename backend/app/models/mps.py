@@ -6,6 +6,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import JSON, Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import SyncBase
@@ -53,7 +54,7 @@ class ProcessSet(SyncBase):
     ratio_ref: Mapped[float | None] = mapped_column(Float, nullable=True, comment="装配放量比")
     cycle_ref: Mapped[float | None] = mapped_column(Float, nullable=True, comment="单件装配周期（天）")
     urgent_ref: Mapped[float | None] = mapped_column(Float, nullable=True, comment="加急单件周期（天）")
-    required_flags: Mapped[list | None] = mapped_column(JSON, nullable=True, comment="特征参数适用标记")
+    required_flags: Mapped[list | None] = mapped_column(MutableList.as_mutable(JSON), nullable=True, comment="特征参数适用标记")
     subpart_mode: Mapped[str | None] = mapped_column(String(10), nullable=True, comment="分部件模式（前置/平行/空）")
     subpart_cycle: Mapped[float | None] = mapped_column(Float, nullable=True, comment="分部件装配周期（天）")
     ramp_days: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="爬坡时间（天）")
@@ -99,7 +100,7 @@ class Order(SyncBase):
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="订单需求日期")
     kit_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="物料齐套时间")
     priority: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="排产优先级（越小越优先，0=置顶）")
-    features: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="BOM 特征（13+2 项）")
+    features: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), nullable=True, comment="BOM 特征（13+2 项）")
     remark: Mapped[str | None] = mapped_column(String(200), nullable=True, comment="备注")
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, default="正常", comment="状态（正常/暂停/取消/完成）")
 
@@ -137,7 +138,7 @@ class OrderOperation(SyncBase):
 
     __tablename__ = "order_operations"
 
-    order_id: Mapped[str] = mapped_column(String(36), comment="工单 ID")
+    order_id: Mapped[str] = mapped_column(String(36), index=True, comment="工单 ID")
     seq: Mapped[int] = mapped_column(Integer, comment="工序序号")
     level: Mapped[str] = mapped_column(String(20), comment="级别")
     op: Mapped[str] = mapped_column(String(50), comment="规范工序名")
@@ -172,8 +173,8 @@ class ScheduleBatch(SyncBase):
     base_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="排产基准日期")
     solver_mode: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="GA/cp_sat/deterministic")
     strategy_id: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="策略 ID")
-    params_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="参数快照")
-    kpi: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="KPI 汇总")
+    params_snapshot: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), nullable=True, comment="参数快照")
+    kpi: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), nullable=True, comment="KPI 汇总")
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, default="完成", comment="状态")
 
 
@@ -182,7 +183,7 @@ class ScheduleAllocation(SyncBase):
 
     __tablename__ = "schedule_allocations"
 
-    batch_id: Mapped[str] = mapped_column(String(36), comment="排产批次 ID")
+    batch_id: Mapped[str] = mapped_column(String(36), index=True, comment="排产批次 ID")
     order_id: Mapped[str] = mapped_column(String(36), comment="工单 ID")
     operation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, comment="工序级需求 ID")
     resource_key: Mapped[str] = mapped_column(String(100), comment="资源（级别|工序|模式）")
@@ -195,7 +196,7 @@ class PriorityLog(SyncBase):
 
     __tablename__ = "priority_logs"
 
-    order_id: Mapped[str] = mapped_column(String(36), comment="工单 ID")
+    order_id: Mapped[str] = mapped_column(String(36), index=True, comment="工单 ID")
     order_no: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="订单号（冗余）")
     action: Mapped[str] = mapped_column(String(20), comment="动作（recompute/pin/unpin/reorder）")
     old_priority: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="原优先级")
@@ -218,7 +219,7 @@ class PriorityBatch(SyncBase):
     batch_id: Mapped[str] = mapped_column(String(36), unique=True, comment="批次 ID")
     action: Mapped[str] = mapped_column(String(20), comment="动作")
     item_count: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="条目数")
-    snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="变更快照")
+    snapshot: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), nullable=True, comment="变更快照")
     operator: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="操作人")
     undone: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否已撤销")
 
@@ -256,7 +257,7 @@ class HapFieldMapping(SyncBase):
     hap_field_id: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="明道云控件 ID")
     hap_field_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="明道云字段名")
     field_type: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="类型（str/int/float/date/option/bool/relation）")
-    option_map: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="选项值映射")
-    relation: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="关联配置")
+    option_map: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), nullable=True, comment="选项值映射")
+    relation: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), nullable=True, comment="关联配置")
     auto_score: Mapped[float | None] = mapped_column(Float, nullable=True, comment="自动匹配置信度")
     manual_override: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否手工调整过")

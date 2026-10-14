@@ -78,14 +78,14 @@ aps-hap 现有业务为通用 SMT 离散制造排产（明道云为主数据平�
 | `order` | 订单号(唯一)、产品型号、工艺代号、订单类型(常规/加急)、首单/复线/变更首件、水汽要求、计划批量、需求日期、物料齐套时间、排产优先级(数字)+优先级引擎字段(评分/级别/来源/置顶/拖拽序)、状态、BOM 特征(13+2 项)、结果回写字段(投料量/成品率/放量比/单件周期/采用通量/瓶颈工序/批量周期/爬坡/交付周期/最晚投料日/排产开始完成日/交期判定/gap) | 产品工单（B 口径特征） |
 | `order_operation` | 工单ID、工序序号、级别、规范工序名、模式、数量(只/特征量)、依赖前道ID(工序间约束)、来源(自动分解/手工追加)、备注 | **工序级需求**：自动由路线分解；支持手工增删（返工/试制=插工序需求） |
 | `system_param` | key/value/label/分组 | 系统参数：week_days=6、peak_factor=1.1、use_peak、exclude_braze_yield、cf_db_1/2/3、cf_wb_1/2/3、vapor_cap_cut、订单缓冲、参考批量、GA 参数、定时同步间隔 等 |
-| `schedule_batch` | 批次号、基准日期、求解模式、策略、参数快照、KPI | 排产批次 |
-| `schedule_result` | 批次ID、工单ID、工序级需求ID、资源(级别\|工序\|模式)、每日分配明细(日期/数量)、开始/完成日、瓶颈标记 | 排产结果（支持历史/对比/推送） |
+| `schedule_batches` | 批次号、基准日期、求解模式、策略、参数快照、KPI | 排产批次 |
+| `schedule_allocations` | 批次ID、工单ID、工序级需求ID、资源(级别\|工序\|模式)、分配日期、数量（起止日/瓶颈由分配派生） | 排产分配明细（支持历史/对比/推送） |
 | `priority_log` / `priority_batch` | 沿用 mps-web：变更审计、批量撤销快照 | 优先级审计 |
 | `hap_connection` | base_url、app_id、app_key_enc、sign_enc、更新时间（单行） | 加密连接配置 |
 | `hap_mapping` | 实体 key、表单ID(ws_id)、同步方向、启用状态 | 实体→表单 |
 | `hap_field_mapping` | 实体 key、本地字段、表单控件ID、表单字段名、类型、选项映射JSON、关联配置、自动匹配置信度、手工覆盖标记 | 字段映射 |
 
-关系：`process_set 1—N process_route`；`process_route N—1 process_master`（级别+规范名+模式）；`order 1—N order_operation`；`order_operation 1—N schedule_result`。
+关系：`process_set 1—N process_route`；`process_route N—1 process_master`（级别+规范名+模式）；`order 1—N order_operation`；`order_operation 1—N schedule_allocations`。
 
 核算口径（1:1 移植，全部参数化）：
 - T单件 = Σ工序周期 + 前置分部件（平行分部件不计）；封盖类无水汽 2→1 天

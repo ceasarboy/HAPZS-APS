@@ -1,11 +1,12 @@
 """MPS 新模型：建表、约束与字段冒烟测试。"""
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.models.mps import (
     HapFieldMapping, HapMapping, Order, OrderOperation, ProcessMaster,
     ProcessRoute, ProcessSet, SystemParam,
+    ScheduleBatch, PriorityBatch,
 )
 
 EXPECTED_TABLES = {
@@ -66,3 +67,50 @@ async def test_system_param_key_unique(sqlite_session):
     with pytest.raises(IntegrityError):
         await sqlite_session.commit()
     await sqlite_session.rollback()
+
+
+async def test_process_set_code_unique(sqlite_session):
+    sqlite_session.add(ProcessSet(code="P-1"))
+    await sqlite_session.commit()
+    sqlite_session.add(ProcessSet(code="P-1"))
+    with pytest.raises(IntegrityError):
+        await sqlite_session.commit()
+    await sqlite_session.rollback()
+
+
+async def test_schedule_batch_no_unique(sqlite_session):
+    sqlite_session.add(ScheduleBatch(batch_no="B-1"))
+    await sqlite_session.commit()
+    sqlite_session.add(ScheduleBatch(batch_no="B-1"))
+    with pytest.raises(IntegrityError):
+        await sqlite_session.commit()
+    await sqlite_session.rollback()
+
+
+async def test_hap_field_mapping_unique_entity_field(sqlite_session):
+    sqlite_session.add(HapFieldMapping(entity="order", local_field="order_no"))
+    await sqlite_session.commit()
+    sqlite_session.add(HapFieldMapping(entity="order", local_field="order_no"))
+    with pytest.raises(IntegrityError):
+        await sqlite_session.commit()
+    await sqlite_session.rollback()
+
+
+async def test_order_defaults_and_sync_status(sqlite_session):
+    sqlite_session.add(Order(order_no="T-3", product="P", code="M02-2D", qty=1))
+    await sqlite_session.commit()
+    row = (await sqlite_session.execute(select(Order).where(Order.order_no == "T-3"))).scalar_one()
+    assert row.pinned is False
+    assert row.status == "正常"
+    assert row.sync_status == "SYNCED"
+
+    # 绕过 ORM，验证 sync_status 的 server_default
+    await sqlite_session.execute(text(
+        "INSERT INTO orders (id, order_no, product, code, order_type, first_flag, water_vapor, qty, pinned, "
+        "created_at, updated_at) VALUES "
+        "('raw-1','T-4','P','M02-2D','常规','否','无',1, 0, datetime('now'), datetime('now'))"
+    ))
+    raw = (await sqlite_session.execute(
+        text("SELECT sync_status FROM orders WHERE id='raw-1'")
+    )).first()
+    assert raw[0] == "SYNCED"
