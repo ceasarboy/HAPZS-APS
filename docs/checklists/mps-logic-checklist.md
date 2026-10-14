@@ -55,7 +55,7 @@
 | CHK-FLUX-015B | 疑点·模块级WB自动通量取值B：20000根丝/天；实现用 `wb_auto_flux_override=20000` | V1.7 周计划汇总区（模块级自动WB 周可用 120000÷6=20000） | WB自动通量=20000，产品级通量=20000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015b_wb_auto_20000 | 阻塞(疑点) |
 | CHK-DELIVERY-001 | 批量总装配周期=T单件+批量项（投料量口径） | V1.6 §三（批量总装配周期）；表6 | M02-2D：6+10=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_001_batch_cycle_sum | 待实现 |
 | CHK-DELIVERY-002 | 批量项=(投料量−瓶颈通量)÷瓶颈通量；计算为负时取0 | V1.7 逻辑⑩ 原文（批量项负值取0） | 投料量≤瓶颈通量→批量项=0 | tests/mps/test_kernel_delivery.py::test_chk_delivery_002_batch_term_formula | 待实现 |
-| CHK-DELIVERY-003A | 疑点·批量项取整取值A：向上取整⌈⌉（V1.6 算例口径）→6+⌈9.52⌉=16天 | V1.6 §九 表6（⌈(1052−100)/100⌉） | M02-2D 批量周期=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003a_batch_term_ceil | 阻塞(疑点) |
+| CHK-DELIVERY-003A | 疑点·批量项取整取值A：向上取整⌈⌉（V1.6 算例口径，实现默认 `round_mode="ceil"`）→6+⌈9.52⌉=16天 | V1.6 §九 表6（⌈(1052−100)/100⌉） | M02-2D 批量周期=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003a_batch_term_ceil | 阻塞(疑点) |
 | CHK-DELIVERY-003B | 疑点·批量项取整取值B：不取整（Excel口径）→6+9.52=15.52天 | 设计规格 §11·Excel不取整口径 | M02-2D 批量周期=15.52天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003b_batch_term_no_ceil | 阻塞(疑点) |
 | CHK-DELIVERY-004 | 交付周期=批量总装配周期+爬坡时间（仅首单/复线/变更首件，常规=0）+订单缓冲（默认1天） | V1.6 §六（交付周期公式） | M02-2D常规：16+0+1=17天；首单：16+1+1=18天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_004_delivery_cycle_formula | 待实现 |
 | CHK-DELIVERY-005A | 疑点·订单缓冲取值A：计入默认1天缓冲（V1.6 口径） | V1.6 §六（订单缓冲默认1天） | 交付周期含+1天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_005a_buffer_included | 阻塞(疑点) |
