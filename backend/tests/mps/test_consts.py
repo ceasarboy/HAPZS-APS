@@ -38,7 +38,7 @@ def test_feature_map_key_snapshot():
 
 def test_param_defs_key_snapshot():
     assert {p["key"] for p in PARAM_DEFS} == {
-        "week_days", "peak_factor", "use_peak", "exclude_braze_yield",
+        "week_days", "peak_factor", "use_peak", "exclude_braze_yield", "wb_auto_flux_override",
         "cf_db_1", "cf_db_2", "cf_db_3", "cf_wb_1", "cf_wb_2", "cf_wb_3",
         "vapor_cap_cut", "order_buffer_days", "reference_batch", "round_mode", "ramp_trigger",
     }

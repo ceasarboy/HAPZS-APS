@@ -35,6 +35,8 @@ FEATURE_MAP: dict[str, list[str]] = {
 # 有意延后：mps-web 另有 7 项"排产约束"组参数（day_cap_mode/day_cap_ratio/takt_window/
 # op_lag_days/takt_max_gap/balance_level/missing_reserve_ratio，仅其未接入的 balance.js 使用），
 # 待计划 3 确定均衡/节拍策略时按需补入，并同步参数页（评审记录 2026-10-14）。
+# 参数消费约定：一律按数值/枚举语义解析（int/float/enum），禁止按字符串字面量精确比较
+# （种子值可能是 "1.0"、默认值可能是 "1"，二者数值等价）。
 PARAM_DEFS: list[dict] = [
     {"key": "week_days", "value": "6", "label": "周工作天数", "group": "排产", "hint": "周负荷可用产能 = 基准通量 × 周工作天数"},
     {"key": "peak_factor", "value": "1.1", "label": "峰值系数", "group": "排产", "hint": "基准峰值通量 = 基准均值通量 × 峰值系数"},
@@ -49,6 +51,7 @@ PARAM_DEFS: list[dict] = [
     {"key": "vapor_cap_cut", "value": "1", "label": "无水汽时封盖工序周期", "group": "周期", "hint": "封盖类工序基准周期在无水汽含量要求时压缩到该值"},
     {"key": "order_buffer_days", "value": "1", "label": "订单缓冲（天）", "group": "交付", "hint": "交付周期 = 批量周期 + 爬坡 + 订单缓冲；疑点：mps-web 未计入，待业务确认"},
     {"key": "reference_batch", "value": "1000", "label": "参考批量（只）", "group": "分流", "hint": "基准通量的分流判定批量；周负荷按订单实际批量动态分流"},
+    {"key": "wb_auto_flux_override", "value": "0", "label": "模块级自动WB通量覆盖", "group": "分流", "hint": "根丝/天；0=使用主数据通量；疑点①：逻辑书12000 vs 主数据口径20000，双档测试用 12000/20000"},
     {"key": "round_mode", "value": "exact", "label": "批量项取整口径", "group": "交付", "hint": "exact=V1.6也算例不取整 / ceil=向上取整；疑点待业务确认"},
     {"key": "ramp_trigger", "value": "first_flag", "label": "爬坡触发口径", "group": "爬坡", "hint": "first_flag=首单/复线/变更首件触发 / all=所有订单；疑点待业务确认"},
 ]
