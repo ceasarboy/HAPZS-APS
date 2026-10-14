@@ -11,7 +11,7 @@
 |---|---|
 | 完成范围 | Task 0~8 / 共 9 项（仅剩最终整体代码审查） |
 | 测试基线 | **51 passed, 1 skipped**（内嵌 Python 3.13.5；PG 用例需 `TEST_PG_URL` 时全跑） |
-| 提交序列 | `4a85584`(基线) → `a3332ce` `9bc512d` `2bfbfaf` `c18f386`(Task1) → `575d9ef` `31a1961`(Task2) → `b5961aa` `89a9506`(Task3) → `2d28c1f` `61e61da`(Task4) → `124a645` `3fa0f34`(Task5) → `bf531f3` `c41f5bd`(Task6) → `49eff32` `cc17674`(Task7) → `0f6ab60` `9139fa2` `fd86d3e`(Task8) |
+| 提交序列 | `4a85584`(基线) → `a3332ce` `9bc512d` `2bfbfaf` `c18f386`(Task1) → `575d9ef` `31a1961`(Task2) → `b5961aa` `89a9506`(Task3) → `2d28c1f` `61e61da`(Task4) → `124a645` `3fa0f34`(Task5) → `bf531f3` `c41f5bd`(Task6) → `49eff32` `cc17674`(Task7) → `0f6ab60` `9139fa2` `fd86d3e`(Task8) → `96d5e95` `91c1682` 等收尾文档提交（完整列表见 `git log --oneline 4a85584..HEAD`） |
 | 主要交付物 | ① check-list 101 条（含测试用例命名与覆盖自查）② MPS 13 张表模型 ③ Alembic 迁移 `62ad14d88051` ④ SQLite/PG 双库引擎 ⑤ 本地模式启动（自动建表+Redis 降级）⑥ 特征/参数常量模块 ⑦ 固化种子（28 工序行/24 成套工艺/133 路线/20 演示单）+ 幂等加载器 + CLI |
 
 ## 二、关键决策记录

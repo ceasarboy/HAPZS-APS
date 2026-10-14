@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy.engine import make_url
 
 from app.core.config import settings
-from app.database import async_session
+from app.database import async_session, init_schema
 from app.mps.maintenance import clean_tables
 
 
@@ -27,6 +27,7 @@ async def main() -> None:
     db_display = make_url(settings.DATABASE_URL).render_as_string(hide_password=True)
     print(f"目标数据库: {db_display}")
     print(f"模式: {'执行删除' if args.execute else '预览（未删除）'}")
+    await init_schema()  # 本地 SQLite 首次运行时自动建表（PG 由 Alembic 管理）
     async with async_session() as session:
         counts = await clean_tables(session, execute=args.execute)
     for name, count in counts.items():
