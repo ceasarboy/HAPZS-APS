@@ -14,8 +14,7 @@
 - SYNC 明道云映射与同步
 - DB 双库与数据一致性（DB 类条目使用计划1实际测试文件，非 kernel 测试）
 - UI 前端视图行为
-- COL V1.7 清单列解读（成品率/放量比/周期三列/特征列组/爬坡与事件列/瓶颈列/批量周期四口径/周计划输出列）
-- COL V1.7 输出列解读（补充类）
+- COL V1.7 清单输出列解读（成品率/放量比/周期三列/特征列组/爬坡与事件列/瓶颈列/批量周期四口径/周计划输出列；补充类）
 
 ## 清单
 
@@ -108,7 +107,7 @@
 | CHK-DB-001 | 双库适配：同一套测试在 SQLite 与 PostgreSQL 均通过（PG 测试库需 TEST_PG_URL 且地址含 test，否则跳过） | 设计规格 §5/§10 验收4；计划1 Task2 | 双后端建连/建表/用例同套通过 | backend/tests/mps/test_database_dual.py::test_sqlite_engine_connect | 待实现 |
 | CHK-DB-002 | SQLite 本地自动建表（create_all 零运维）；PostgreSQL 由 Alembic 迁移管理（init_schema 对非 SQLite 不做动作） | 设计规格 §5；计划1 Task2 | SQLite 启动即建表；PG 不走 create_all | backend/tests/mps/test_mps_models.py::test_mps_tables_created | 待实现 |
 | CHK-DB-003 | 种子幂等：三张主数据表清空重插；系统参数只补缺失、不覆盖用户已改值；演示工单仅在 orders 为空时导入一次 | 计划1 Task7（种子加载器） | 重复导入行数稳定、参数保留 | backend/tests/mps/test_seed_loader.py::test_seed_idempotent_and_params_preserved | 待实现 |
-| CHK-DB-004 | 可移植类型与统一出箱字段：不使用 PG 专有类型（Uuid 字符串/JSON/DateTime）；模型统一带 hap_row_id/sync_status/synced_at；JSON 往返与唯一约束成立 | 设计规格 §4/§5；计划1 Task2/3 | 双库类型等价、出箱字段齐备 | backend/tests/mps/test_database_dual.py::test_engine_kwargs_no_pool_for_sqlite | 待实现 |
+| CHK-DB-004 | 可移植类型与统一出箱字段：不使用 PG 专有类型（Uuid 字符串/JSON/DateTime）；模型统一带 hap_row_id/sync_status/synced_at；JSON 往返与唯一约束成立 | 设计规格 §4/§5；计划1 Task2/3 | 双库类型等价、出箱字段齐备 | backend/tests/mps/test_mps_models.py::test_order_features_json_roundtrip | 待实现 |
 | CHK-UI-001 | 六视图职责：①工单管理（订单号/产品型号/工艺代号等24列内联编辑、Excel导入/模板/导出、优先级引擎UI、实时草算）②排产结果（求解模式/策略/异步进度/KPI/瓶颈卡/内联改交期齐套）③工序产能负荷（周负荷表图+每日产能折线 cap/85%/100%）④甘特图（订单级/工序级、瓶颈红条、齐套标记、分部件平行条）⑤日任务看板（日期/工序/级别/模式筛选）⑥基础数据（工序/工艺/路线/系统参数） | 设计规格 §8/§3 | 六视图关键路径走查通过 | tests/mps/test_kernel_ui.py::test_chk_ui_001_six_views | 待实现 |
 | CHK-UI-002 | 旧计划类页面替换：旧 Schedule/ScheduleResult/DataManager 由新页面替代，旧数据可删（清理脚本） | 设计规格 §1/§8/D1；计划1 Task8 | 旧页面不可达、旧数据清理可执行 | tests/mps/test_kernel_ui.py::test_chk_ui_002_legacy_pages_replaced | 待实现 |
 | CHK-UI-003 | 执行类页面冻结保留：报工/工序进度/工时保留入口并标注"待二期适配"，不接入新模型 | 设计规格 D1/§1/§8 | 页面可访问、标注冻结 | tests/mps/test_kernel_ui.py::test_chk_ui_003_execution_pages_frozen | 待实现 |
