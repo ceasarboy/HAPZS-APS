@@ -8,12 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.router import v1_router
+from app.core.config import settings
 from app.core.redis import close_redis, init_redis
+from app.database import init_schema, is_sqlite
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化资源，关闭时释放资源。"""
+    # 启动事件：本地 SQLite 模式自动建表（服务器 PG 模式由 Alembic 管理）
+    await init_schema()
+    logger.info("数据库结构检查完成")
+
     # M9修复: 关键初始化（Redis）失败时记录错误并中断；非关键初始化失败时降级运行
     # 启动事件：初始化 Redis 连接（关键服务）
     logger.info("初始化 Redis 连接...")
@@ -21,8 +27,11 @@ async def lifespan(app: FastAPI):
         await init_redis()
         logger.info("Redis 连接初始化完成")
     except Exception as e:
-        logger.error("Redis 连接初始化失败（关键服务，启动中止）: {}", e)
-        raise
+        if is_sqlite(settings.DATABASE_URL):
+            logger.warning("Redis 连接失败（本地 SQLite 模式降级运行，不影响启动）: {}", e)
+        else:
+            logger.error("Redis 连接初始化失败（关键服务，启动中止）: {}", e)
+            raise
 
     # 启动事件：HAP 缓存预热（非关键，失败时降级）
     logger.info("开始 HAP 缓存预热...")
