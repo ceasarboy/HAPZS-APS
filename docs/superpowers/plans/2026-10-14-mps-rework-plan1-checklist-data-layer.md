@@ -1864,8 +1864,6 @@ async def clean_tables(
 
 
 def _table(name: str):
-    from sqlalchemy import Table
-
     from app.database import Base
     import app.models  # noqa: F401
 
