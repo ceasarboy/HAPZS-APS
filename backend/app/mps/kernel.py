@@ -114,3 +114,221 @@ def conv_factor(step: dict, feats: dict, p: dict) -> float:
     cnt_key = "Y_wire2" if feature.endswith("-2") else "Y_wire"
     cnt = nz(feats.get(cnt_key), 1) or 1
     return nz(p.get("cf_wb_3") if cnt >= 3 else (p.get("cf_wb_2") if cnt == 2 else p.get("cf_wb_1")), 1.0)
+
+
+def _parse_due(due) -> "date | None":
+    from datetime import date, datetime
+
+    if due is None or due == "":
+        return None
+    if isinstance(due, datetime):
+        return due.date()
+    if isinstance(due, date):
+        return due
+    try:
+        return date.fromisoformat(str(due)[:10])
+    except ValueError:
+        return None
+
+
+def calc_order(order: dict, ctx: dict) -> dict:
+    """单条工单完整核算（移植 calcOrder + 参数化扩展）。
+
+    扩展（相对 mps-web）：round_mode（ceil/exact）、order_buffer_days、
+    ramp_trigger（first_flag/all）、wb_auto_flux_override（模块级自动WB通量覆盖）。
+    """
+    from datetime import timedelta
+
+    proc_map, route_map, wc_map, p = ctx["proc_map"], ctx["route_map"], ctx["wc_map"], ctx["params"]
+    proc = proc_map.get(order["code"])
+    if not proc:
+        raise ValueError(f"未找到成套工艺：{order['code']}")
+
+    feats = order.get("features") or {}
+    steps = sorted(route_map.get(order["code"], []), key=lambda r: r["seq"])
+    qty = nz(order.get("qty"), 0)
+    has_vapor = str(order.get("water_vapor") or "有") != "无"
+    is_urgent = str(order.get("order_type")) == "加急"
+    vapor_cut = nz(p.get("vapor_cap_cut"), 1)
+    is_component = str(order["code"]).startswith("C")
+    use_peak = str(p.get("use_peak") or "mean") == "peak"
+    round_mode = str(p.get("round_mode") or "ceil")
+    buffer_days = nz(p.get("order_buffer_days"), 0)
+    ramp_trigger = str(p.get("ramp_trigger") or "first_flag")
+    wb_override = nz(p.get("wb_auto_flux_override"), 0)
+
+    # 1. 单件装配周期（封盖水汽调节 + 前置分部件；平行分部件不占周期）
+    cycle_sum = 0.0
+    step_cycle: list[dict] = []
+    for s in steps:
+        c = nz(s.get("cycle"), 0)
+        adjusted = False
+        if not has_vapor and str(s.get("step_std") or "").startswith("封盖") and c > vapor_cut:
+            c = vapor_cut
+            adjusted = True
+        cycle_sum += c
+        step_cycle.append({"c": c, "adjusted": adjusted})
+    t_base = max(cycle_sum, 1)
+    sub_included = nz(proc.get("subpart_cycle"), 0) if proc.get("subpart_mode") == "前置" else 0
+    t_base += sub_included
+    t_urgent = urgent_cycle(t_base)
+    t_used = t_urgent if is_urgent else t_base
+
+    # 2. 成品率 / 装配放量比（组件级可按开关剔除钎焊；CHK-YIELD-001..006）
+    y_full, y_ratio = 1.0, 1.0
+    yield_chain: list[dict] = []
+    for s in steps:
+        y = nz(s.get("yield_overall"), 1)
+        y_full *= y
+        skip = is_component and nz(p.get("exclude_braze_yield"), 0) == 1 and s.get("step_std") == "钎焊"
+        if not skip:
+            y_ratio *= y
+        yield_chain.append({"step": s.get("step_std"), "y": y, "skipped": skip})
+    ratio = 1 / y_ratio if y_ratio > 0 else 1
+    ratio_full = 1 / y_full if y_full > 0 else 1
+
+    # 3. 投料量（含产出校核迭代；CHK-YIELD-004/005）
+    y_eff = y_ratio
+    q = ceil_int(qty * ratio)
+    guard = 0
+    while q * y_eff < qty and guard < 1000:
+        q += 1
+        guard += 1
+
+    # 4. 产品级通量（CHK-FLUX-002..014；wb_auto_flux_override 覆盖疑点①）
+    item: list[dict] = []
+    for i, s in enumerate(steps):
+        wc_key = f"{s.get('level')}|{s.get('step_std')}"
+        wc = wc_map.get(wc_key)
+        picked = pick_mode(wc, qty)
+        if picked:
+            base = nz(picked["mode"].get("flux_peak"), 0) if use_peak else nz(picked["mode"].get("flux_base"), 0)
+            if (wb_override > 0 and s.get("level") == "模块级" and s.get("step_std") == "WB"
+                    and picked["mode_name"] == "自动WB"):
+                base = wb_override
+        else:
+            base = 0
+        fu = feature_usage(s, feats)
+        cf = conv_factor(s, feats, p)
+        thr = (base * cf) / fu["usage"] if (not fu["missing"] and (fu["usage"] or 0) > 0) else None
+        item.append({
+            "seq": s.get("seq"), "step_raw": s.get("step_raw"), "step_std": s.get("step_std"),
+            "level": s.get("level"), "wc_key": wc_key,
+            "cycle": step_cycle[i]["c"], "cycle_adjusted": step_cycle[i]["adjusted"],
+            "y_overall": nz(s.get("yield_overall"), 1), "feature": s.get("feature"),
+            "feature_key": fu["key"], "usage": fu["usage"], "missing": fu["missing"],
+            "cf": cf, "mode": picked["mode_name"] if picked else "/",
+            "flux_base": base, "cf_field": s.get("cf_field"),
+            "unit": picked["mode"].get("unit", "") if picked else "",
+            "throughput": thr, "days": ceil_int(q / thr) if (thr and thr > 0) else None,
+        })
+
+    # 5. 瓶颈工序（取小；缺参与无通量不参与）
+    valid = [s for s in item if (not s["missing"]) and (s["throughput"] or 0) > 0]
+    bn = min(valid, key=lambda s: s["throughput"]) if valid else None
+    for s in item:
+        s["is_bottleneck"] = bool(bn is not None and s is bn)
+    c_flux = bn["throughput"] if bn else None
+
+    # 6. 批量总装配周期（round_mode 双档；CHK-DELIVERY-002/003）
+    if c_flux and c_flux > 0:
+        if round_mode == "ceil":
+            batch_cycle = t_used + max(0, ceil_int((q - c_flux) / c_flux))
+        else:
+            batch_cycle = t_used + max(0.0, (q - c_flux) / c_flux)
+    else:
+        batch_cycle = t_used
+
+    # 7. 爬坡 / 交付周期（CHK-CYCLE-006/007/009、CHK-DELIVERY-004/005/006）
+    first_flag = str(order.get("first_flag") or "否")
+    triggered = first_flag in ("首单", "复线", "变更首件")
+    applied = ramp_trigger == "all" or triggered
+    ramp_used = nz(proc.get("ramp_days"), 0) if applied else 0
+    delivery_cycle = batch_cycle + ramp_used + buffer_days
+
+    latest_start_date = None
+    due = _parse_due(order.get("due_date"))
+    if due is not None:
+        latest_start_date = (due - timedelta(days=delivery_cycle)).isoformat()
+
+    gantt = build_gantt(item, t_used, batch_cycle, proc, q)
+    return {
+        "order": {
+            "order_no": order.get("order_no"), "product": order.get("product"), "code": order["code"],
+            "order_type": order.get("order_type"), "first_flag": first_flag,
+            "water_vapor": "有" if has_vapor else "无", "qty": qty,
+            "due_date": order.get("due_date"), "kit_date": order.get("kit_date") or "",
+            "priority": order.get("priority"), "remark": order.get("remark"),
+        },
+        "process": {"code": proc.get("code"), "name": proc.get("name"), "arch": proc.get("arch")},
+        "features": feats,
+        "cycle": {"base": t_base, "urgent": t_urgent, "used": t_used, "cycle_sum": cycle_sum,
+                  "subpart_included": sub_included},
+        "yield": {"full": y_full, "ratio_basis": y_ratio, "chain": yield_chain},
+        "ratio": {"used": ratio, "full": ratio_full,
+                  "exclude_braze": is_component and nz(p.get("exclude_braze_yield"), 0) == 1},
+        "input_qty": q,
+        "output_check": {"expected": math.floor(q * y_eff), "needed": qty, "ok": math.floor(q * y_eff) >= qty},
+        "steps": item,
+        "bottleneck": (
+            {"seq": bn["seq"], "step_std": bn["step_std"], "step_raw": bn["step_raw"], "mode": bn["mode"],
+             "throughput": bn["throughput"], "flux_base": bn["flux_base"], "cf": bn["cf"],
+             "usage": bn["usage"], "feature": bn["feature"]}
+            if bn else None
+        ),
+        "batch": {"batch_cycle": batch_cycle,
+                  "bottleneck_days": ceil_int(q / c_flux) if (c_flux and c_flux > 0) else None},
+        "ramp": {"days": nz(proc.get("ramp_days"), 0), "used": ramp_used, "triggered": triggered},
+        "delivery": {"days": delivery_cycle, "buffer_days": buffer_days, "latest_start_date": latest_start_date},
+        "gantt": gantt,
+        "warnings": build_warnings(item),
+    }
+
+
+def build_gantt(item: list[dict], t_used: float, batch: float, proc: dict, q: float) -> dict:
+    """工序在制窗口与浮动（移植 buildGantt；相对天数）。"""
+    n = len(item)
+    lead0 = nz(proc.get("subpart_cycle"), 0) if proc.get("subpart_mode") == "前置" else 0
+    acc = lead0
+    rows = []
+    for i, s in enumerate(item):
+        rows.append({**s, "idx": i, "earliest_start": acc})
+        acc += s["cycle"]
+    tail = 0.0
+    for i in range(n - 1, -1, -1):
+        rows[i]["latest_finish"] = batch - tail
+        tail += rows[i]["cycle"]
+    bars = []
+    for r in rows:
+        window = max(r["latest_finish"] - r["earliest_start"], r["cycle"])
+        busy = min(max(r["days"] or 1, 1), window)
+        bars.append({
+            "kind": "step", "seq": r["seq"], "step_std": r["step_std"], "step_raw": r["step_raw"],
+            "mode": r["mode"], "earliest_start": r["earliest_start"], "latest_finish": r["latest_finish"],
+            "window_days": window, "busy_days": busy, "float_days": window - busy,
+            "cycle": r["cycle"], "throughput": r["throughput"], "usage": r["usage"],
+            "feature": r["feature"], "is_bottleneck": r["is_bottleneck"],
+            "cycle_adjusted": r["cycle_adjusted"],
+        })
+    if lead0 > 0:
+        bars.insert(0, {
+            "kind": "subpart", "seq": 0, "step_std": "前置分部件", "step_raw": "前置分部件", "mode": "/",
+            "earliest_start": 0, "latest_finish": lead0, "window_days": lead0, "busy_days": lead0,
+            "float_days": 0, "cycle": lead0, "throughput": None, "usage": None, "feature": "",
+            "is_bottleneck": False, "cycle_adjusted": False,
+        })
+    return {"batch_days": batch, "lead_days": t_used, "input_qty": q, "bars": bars}
+
+
+def build_warnings(item: list[dict]) -> list[dict]:
+    """缺 BOM 特征 / 工序主数据缺失 提示（CHK-FLUX-018）。"""
+    w = []
+    missing = [s for s in item if s["missing"]]
+    if missing:
+        feats = "、".join(sorted({str(s["feature"]) for s in missing}))
+        w.append({"level": "error", "text": f"缺少 BOM 特征参数：{feats}，相关工序未参与取小"})
+    no_wc = [s for s in item if not s["wc_key"] or (s["flux_base"] or 0) <= 0]
+    if no_wc:
+        keys = "、".join(sorted({str(s["wc_key"]) for s in no_wc}))
+        w.append({"level": "warn", "text": f"工序主数据缺失：{keys}"})
+    return w
