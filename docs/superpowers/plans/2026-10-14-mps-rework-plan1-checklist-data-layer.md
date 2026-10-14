@@ -1309,6 +1309,29 @@ def test_param_defs_unique_and_defaults():
     assert defs["reference_batch"]["value"] == "1000"
     assert defs["round_mode"]["value"] == "exact"
     assert defs["ramp_trigger"]["value"] == "first_flag"
+
+
+def test_feature_map_key_snapshot():
+    assert set(FEATURE_MAP) == {
+        "植球-球数N_b", "FC-倒装元件数N_fc", "钎焊-部件数N_bs", "SMT-贴装元件数N_smt",
+        "DB-芯片数N_die", "DB-芯片数N_die-1", "DB-芯片数N_die-2",
+        "WB-键合线数N_wire", "WB-键合线数N_wire-1", "WB-键合线数N_wire-2",
+        "电装-（焊点+螺钉）数量N_a", "工单产品数量N",
+    }
+
+
+def test_param_defs_key_snapshot():
+    assert {p["key"] for p in PARAM_DEFS} == {
+        "week_days", "peak_factor", "use_peak", "exclude_braze_yield",
+        "cf_db_1", "cf_db_2", "cf_db_3", "cf_wb_1", "cf_wb_2", "cf_wb_3",
+        "vapor_cap_cut", "order_buffer_days", "reference_batch", "round_mode", "ramp_trigger",
+    }
+
+
+def test_feature_map_values_are_feature_keys():
+    field_keys = {f["key"] for f in FEATURE_FIELDS}
+    for keys in FEATURE_MAP.values():
+        assert set(keys).issubset(field_keys)
 ```
 
 - [ ] **Step 6.2: 运行确认失败**
@@ -1356,7 +1379,10 @@ FEATURE_MAP: dict[str, list[str]] = {
     "工单产品数量N": [],
 }
 
-# 参数定义（11 项来自 mps-web PARAM_DEFS；后 4 项为本系统新增/疑点开关）
+# 参数定义（11 项来自 mps-web PARAM_DEFS 核心组；后 4 项为本系统新增/疑点开关）。
+# 有意延后：mps-web 另有 7 项"排产约束"组参数（day_cap_mode/day_cap_ratio/takt_window/
+# op_lag_days/takt_max_gap/balance_level/missing_reserve_ratio，仅其未接入的 balance.js 使用），
+# 待计划 3 确定均衡/节拍策略时按需补入，并同步参数页（评审记录 2026-10-14）。
 PARAM_DEFS: list[dict] = [
     {"key": "week_days", "value": "6", "label": "周工作天数", "group": "排产", "hint": "周负荷可用产能 = 基准通量 × 周工作天数"},
     {"key": "peak_factor", "value": "1.1", "label": "峰值系数", "group": "排产", "hint": "基准峰值通量 = 基准均值通量 × 峰值系数"},
