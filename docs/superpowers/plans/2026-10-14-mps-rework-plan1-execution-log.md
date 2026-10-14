@@ -9,9 +9,9 @@
 
 | 项 | 结果 |
 |---|---|
-| 完成范围 | Task 0~7 / 共 9 项（Task 8 清理与全量回归、最终整体审查 未开始） |
-| 测试基线 | **46 passed, 1 skipped**（内嵌 Python 3.13.5；PG 用例需 `TEST_PG_URL` 时全跑） |
-| 提交序列 | `4a85584`(基线) → `a3332ce` `9bc512d` `2bfbfaf` `c18f386`(Task1) → `575d9ef` `31a1961`(Task2) → `b5961aa` `89a9506`(Task3) → `2d28c1f` `61e61da`(Task4) → `124a645` `3fa0f34`(Task5) → `bf531f3` `c41f5bd`(Task6) → `49eff32` `cc17674`(Task7) |
+| 完成范围 | Task 0~8 / 共 9 项（仅剩最终整体代码审查） |
+| 测试基线 | **51 passed, 1 skipped**（内嵌 Python 3.13.5；PG 用例需 `TEST_PG_URL` 时全跑） |
+| 提交序列 | `4a85584`(基线) → `a3332ce` `9bc512d` `2bfbfaf` `c18f386`(Task1) → `575d9ef` `31a1961`(Task2) → `b5961aa` `89a9506`(Task3) → `2d28c1f` `61e61da`(Task4) → `124a645` `3fa0f34`(Task5) → `bf531f3` `c41f5bd`(Task6) → `49eff32` `cc17674`(Task7) → `0f6ab60` `9139fa2` `fd86d3e`(Task8) |
 | 主要交付物 | ① check-list 101 条（含测试用例命名与覆盖自查）② MPS 13 张表模型 ③ Alembic 迁移 `62ad14d88051` ④ SQLite/PG 双库引擎 ⑤ 本地模式启动（自动建表+Redis 降级）⑥ 特征/参数常量模块 ⑦ 固化种子（28 工序行/24 成套工艺/133 路线/20 演示单）+ 幂等加载器 + CLI |
 
 ## 二、关键决策记录
@@ -30,7 +30,8 @@
    - Task 2：`init_schema` 可把建表误打到生产引擎、PG 测试守卫 `"test" in url` 过弱（`tester@prod` 会通过导致 drop_all 清库）、核心函数无测试；
    - Task 3：模型/迁移索引漂移、JSON 原地修改不被追踪（静默丢写）、约束测试缺口；
    - Task 5：Redis 为惰性连接（启动"成功"不代表可达，降级分支仅覆盖配置错误）、本地 SQLite 模型演进无缺列校验→已录入规格 §11 风险表；
-   - Task 6：7 项参数被静默裁剪、关键映射缺快照断言（改名可静默通过）。
+   - Task 6：7 项参数被静默裁剪、关键映射缺快照断言（改名可静默通过）；
+   - Task 8：清理工具 FK 删除顺序错误（Critical——`material_kittings` 排在其父表 `demand_plans` 之后，PG 上 `--execute` 会直接失败）+ `tables=[]` 被静默当成全表清理；修复时新增"元数据驱动 FK 顺序测试"可永久防回归，并做了反向验证（旧代码必被新测试抓住）。
 4. **环境陷阱清单**：
    - `.gitignore` 忽略 `backend/scripts/` → 新增维护脚本放 `backend/tools/`（已弃用旧目录放一次性调试脚本）；
    - PowerShell 控制台中文乱码、内联 python 引号转义易错 → 一律写临时 .py 脚本执行；
@@ -42,8 +43,11 @@
 ## 四、未决事项与续跑指南
 
 **下一步（计划 1 剩余）：**
-1. Task 8 旧数据清理（dry-run 默认）+ 全量回归；
-2. 最终整体代码审查（dispatch final reviewer）→ `finishing-a-development-branch`（合并/保留分支决策）。
+1. 最终整体代码审查（dispatch final reviewer）；
+2. `finishing-a-development-branch`（合并/保留分支决策）→ 推送 origin 同步。
+
+**go-live 清理步骤建议（Task 8 评审提出，写入计划 6/部署文档）：**
+`pg_dump 备份 → dry-run 复核计数 → 停服（避免与 uvicorn/Celery 写并发）→ --execute → 复核计数为 0`。
 
 **Task 7 质量审查积压项（低成本，随计划 2/3 顺带处理）：**
 - 补 4 个建议测试：种子 params 键 ⊆ PARAM_DEFS / 二次运行不动 28·24·133 / demo 特征⊆FEATURE_FIELDS 且 due_date 为 date / 路线 code ⊆ 工艺 code；

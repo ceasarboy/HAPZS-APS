@@ -42,10 +42,10 @@
 | 5 启动适配 | ✅ 完成（本地模式实测 + Redis 降级实测 + PG fail-fast 单测） | `124a645` `3fa0f34` |
 | 6 MPS 常量模块 | ✅ 完成（含快照测试补强与 7 参数延后记录） | `bf531f3` `c41f5bd` |
 | 7 种子转换/加载/导入 | ✅ 完成（74KB 固化种子；保真/幂等/特征回归复核通过） | `49eff32` `cc17674` |
-| 8 旧数据清理 + 全量回归 | ⏳ 待执行（本次继续） | — |
-| 最终整体代码审查 | ⏸ 待 Task 8 完成后 | — |
+| 8 旧数据清理 + 全量回归 | ✅ 完成（含质量修复：FK 顺序/空表语义/目标库打印/顺序测试） | `0f6ab60` `fd86d3e` |
+| 最终整体代码审查 | ⏳ 进行中 | — |
 
-- 测试基线：**46 passed, 1 skipped**（内嵌 Python `offline\runtime\python`，PG 用例按需跳过）。
+- 测试基线：**51 passed, 1 skipped**（内嵌 Python `offline\runtime\python`，PG 用例按需跳过）。
 - 执行环境要点与经验教训：见 `docs/superpowers/plans/2026-10-14-mps-rework-plan1-execution-log.md`。
 
 ---
@@ -1776,7 +1776,7 @@ git commit -m "feat(seed): MPS 种子转换、加载器与导入脚本"
 - Create: `backend/tools/clean_old_business_data.py`
 - Create: `backend/tests/mps/test_clean_old_business_data.py`
 
-- [ ] **Step 8.1: 编写失败测试**
+- [x] **Step 8.1: 编写失败测试**
 
 （清理核心逻辑放 `backend/app/mps/maintenance.py` 以便测试，脚本只做 CLI 包装。）
 
@@ -1834,14 +1834,14 @@ def test_old_business_tables_all_registered():
     assert set(OLD_BUSINESS_TABLES).issubset(Base.metadata.tables.keys())
 ```
 
-- [ ] **Step 8.2: 运行确认失败**
+- [x] **Step 8.2: 运行确认失败**
 
 ```powershell
 python -m pytest tests/mps/test_clean_old_business_data.py -v
 ```
 Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps.maintenance'`。
 
-- [ ] **Step 8.3: 创建 `backend/app/mps/maintenance.py`**
+- [x] **Step 8.3: 创建 `backend/app/mps/maintenance.py`**
 
 ```python
 """维护操作：旧业务数据清理（保留表结构，仅删数据；默认 dry-run）。"""
@@ -1906,7 +1906,7 @@ def _table(name: str):
     return table
 ```
 
-- [ ] **Step 8.4: 创建 `backend/tools/clean_old_business_data.py`**
+- [x] **Step 8.4: 创建 `backend/tools/clean_old_business_data.py`**
 
 ```python
 """清理旧业务数据（保留表结构；默认 dry-run）。
@@ -1949,14 +1949,14 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-- [ ] **Step 8.5: 运行测试确认通过**
+- [x] **Step 8.5: 运行测试确认通过**
 
 ```powershell
 python -m pytest tests/mps/test_clean_old_business_data.py -v
 ```
 Expected: 2 passed。
 
-- [ ] **Step 8.6: 全量回归 + 提交**
+- [x] **Step 8.6: 全量回归 + 提交**
 
 ```powershell
 python -m pytest tests -v
