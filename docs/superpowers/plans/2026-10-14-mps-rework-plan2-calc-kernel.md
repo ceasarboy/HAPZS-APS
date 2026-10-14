@@ -22,13 +22,29 @@
 
 ---
 
+## 执行状态（截至 2026-10-14 晚间）
+
+| Task | 状态 | 提交 |
+|---|---|---|
+| 1 内核单点函数 | ✅ 完成（spec+质量双审；跟进 +3 测试） | `61bd34a` `89c2d8e` |
+| 2 calc_order 主体 | ✅ 完成（官方算例 M02-2D 全对 + Node 实跑对照） | `1dbcff2` `676459b` |
+| 3 上下文装载 | ✅ 完成（含 CHK-CALC-004 联动；pick_mode 行序加固） | `7db6130` `0b1d5e4` |
+| 4 周负荷/产线瓶颈 | ✅ 完成（含 line_bottleneck 补测与 0.85/1.0 边界） | `f07fc70` `28e1508` |
+| 5 官方周负荷算例 + 疑点双档 | ⏸ 下一步 | — |
+| 6 内核收尾（对照抽查+清单核对） | ⏸ | — |
+
+- 测试基线：**96 passed, 1 skipped**（内嵌 Python 3.13.5）。
+- 执行记录与经验教训：`docs/superpowers/plans/2026-10-14-mps-rework-plan2-execution-log.md`。
+
+---
+
 ### Task 1: 内核基础与单点函数（kernel.py 第一批）
 
 **Files:**
 - Create: `backend/app/mps/kernel.py`
 - Create: `backend/tests/mps/test_kernel_units.py`
 
-- [ ] **Step 1.1: 编写失败测试**
+- [x] **Step 1.1: 编写失败测试**
 
 创建 `backend/tests/mps/test_kernel_units.py`：
 
@@ -146,12 +162,12 @@ def test_feature_usage_zero_empty_missing():
     assert feature_usage(step, {"N_die": -1})["missing"] is True
 ```
 
-- [ ] **Step 1.2: 运行确认失败**
+- [x] **Step 1.2: 运行确认失败**
 
 （在 `backend` 目录）`& "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_kernel_units.py -v`
 Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps.kernel'`。
 
-- [ ] **Step 1.3: 创建 `backend/app/mps/kernel.py`（第一批）**
+- [x] **Step 1.3: 创建 `backend/app/mps/kernel.py`（第一批）**
 
 ```python
 """MPS 核算内核（移植自 mps-web src/engine.js；口径对齐《SiP产线成套工艺计算逻辑说明书-V1.6》）。
@@ -282,14 +298,14 @@ def conv_factor(step: dict, feats: dict, p: dict) -> float:
     return nz(p.get("cf_wb_3") if cnt >= 3 else (p.get("cf_wb_2") if cnt == 2 else p.get("cf_wb_1")), 1.0)
 ```
 
-- [ ] **Step 1.4: 运行确认通过**
+- [x] **Step 1.4: 运行确认通过**
 
 ```powershell
 & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_kernel_units.py -v
 ```
 Expected: 7 passed。
 
-- [ ] **Step 1.5: 提交**
+- [x] **Step 1.5: 提交**
 
 ```bash
 git add backend/app/mps/kernel.py backend/tests/mps/test_kernel_units.py
@@ -304,7 +320,7 @@ git commit -m "feat(kernel): 内核单点函数移植（nz/ceil/加急/分流/�
 - Modify: `backend/app/mps/kernel.py`（追加 calc_order / build_gantt / build_warnings）
 - Create: `backend/tests/mps/test_kernel_calc.py`
 
-- [ ] **Step 2.1: 编写失败测试（官方算例与核心口径）**
+- [x] **Step 2.1: 编写失败测试（官方算例与核心口径）**
 
 创建 `backend/tests/mps/test_kernel_calc.py`：
 
@@ -504,11 +520,11 @@ def test_chk_cycle_009b_first_only_trigger():
     assert calc_order(_order(first_flag="变更首件"), ctx)["ramp"]["used"] == 0
 ```
 
-- [ ] **Step 2.2: 运行确认失败**
+- [x] **Step 2.2: 运行确认失败**
 
 `... -m pytest tests/mps/test_kernel_calc.py -v` → FAIL（calc_order 未定义）。
 
-- [ ] **Step 2.3: 在 `backend/app/mps/kernel.py` 追加实现**
+- [x] **Step 2.3: 在 `backend/app/mps/kernel.py` 追加实现**
 
 ```python
 def _parse_due(due) -> "date | None":
@@ -735,12 +751,12 @@ def build_warnings(item: list[dict]) -> list[dict]:
     return w
 ```
 
-- [ ] **Step 2.4: 运行确认通过**
+- [x] **Step 2.4: 运行确认通过**
 
 `... -m pytest tests/mps/test_kernel_calc.py -v` → 预期 15 passed（Task 2 首发 9 + 质量跟进补 6）。
 （若任一数字不符：对照 `D:\MPS\mps-web\src\engine.js` 逐段核对，不得放宽断言。）
 
-- [ ] **Step 2.5: 提交**
+- [x] **Step 2.5: 提交**
 
 ```bash
 git add backend/app/mps/kernel.py backend/tests/mps/test_kernel_calc.py
@@ -755,7 +771,7 @@ git commit -m "feat(kernel): calc_order 主体移植（官方算例对齐 + 双�
 - Create: `backend/app/mps/context.py`
 - Create: `backend/tests/mps/test_kernel_context.py`
 
-- [ ] **Step 3.1: 编写失败测试（含 CHK-CALC-004 数据流联动）**
+- [x] **Step 3.1: 编写失败测试（含 CHK-CALC-004 数据流联动）**
 
 创建 `backend/tests/mps/test_kernel_context.py`：
 
@@ -848,11 +864,11 @@ def test_numeric_param_keys_subset_of_param_defs():
 
 （如文件缺 `import pytest` 请补上。）
 
-- [ ] **Step 3.2: 运行确认失败**
+- [x] **Step 3.2: 运行确认失败**
 
 `... -m pytest tests/mps/test_kernel_context.py -v` → FAIL（app.mps.context 不存在）。
 
-- [ ] **Step 3.3: 创建 `backend/app/mps/context.py`**
+- [x] **Step 3.3: 创建 `backend/app/mps/context.py`**
 
 ```python
 """内核上下文装载：数据库 → 内核输入 dict（proc_map/route_map/wc_map/params）。
@@ -924,11 +940,11 @@ def _wc_mode_dict(w: ProcessMaster) -> dict:
             "unit": w.unit, "feature": w.feature, "split_threshold": w.split_threshold}
 ```
 
-- [ ] **Step 3.4: 运行确认通过**
+- [x] **Step 3.4: 运行确认通过**
 
 `... -m pytest tests/mps/test_kernel_context.py -v` → 预期 7 passed（首发 3 + 质量跟进补 4）。
 
-- [ ] **Step 3.5: 提交**
+- [x] **Step 3.5: 提交**
 
 ```bash
 git add backend/app/mps/context.py backend/tests/mps/test_kernel_context.py
@@ -943,7 +959,7 @@ git commit -m "feat(kernel): 上下文装载（DB→内核输入）与数据流�
 - Create: `backend/app/mps/load.py`
 - Create: `backend/tests/mps/test_kernel_load.py`
 
-- [ ] **Step 4.1: 编写失败测试**
+- [x] **Step 4.1: 编写失败测试**
 
 创建 `backend/tests/mps/test_kernel_load.py`：
 
@@ -1124,9 +1140,9 @@ def test_weekly_load_scope_route_without_db():
     assert d["模块级|WB|半自动WB"]["load"] == pytest.approx(20000)   # 100+100
 ```
 
-- [ ] **Step 4.2: 运行确认失败** → `ModuleNotFoundError: app.mps.load`。
+- [x] **Step 4.2: 运行确认失败** → `ModuleNotFoundError: app.mps.load`。
 
-- [ ] **Step 4.3: 创建 `backend/app/mps/load.py`**
+- [x] **Step 4.3: 创建 `backend/app/mps/load.py`**
 
 （1:1 移植 `schedule.js` 的 `weeklyLoad`（375-410 行）与 `lineBottleneck`（414-432 行）；`nz` 从 kernel 复用）
 
@@ -1211,11 +1227,11 @@ def line_bottleneck(results: list[dict], load_rows: list[dict]) -> list[dict]:
     return rows
 ```
 
-- [ ] **Step 4.4: 修正测试期望值后运行通过**
+- [x] **Step 4.4: 修正测试期望值后运行通过**
 
 按 Step 4.1 注记用真实算术核对"判定边界"断言（只改期望值）。`... -m pytest tests/mps/test_kernel_load.py -v` → 预期 10 passed（首发 3 + 质量跟进补 7）；全量回归 `... -m pytest tests -q`（预期 96 passed, 1 skipped）。
 
-- [ ] **Step 4.5: 提交**
+- [x] **Step 4.5: 提交**
 
 ```bash
 git add backend/app/mps/load.py backend/tests/mps/test_kernel_load.py
