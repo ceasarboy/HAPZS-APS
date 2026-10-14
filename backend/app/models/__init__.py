@@ -7,6 +7,11 @@ from .entities import (
 )
 from .config import SolverConfig
 from .schedule import ScheduleTask
+from .mps import (
+    ProcessMaster, ProcessSet, ProcessRoute, Order, OrderOperation, SystemParam,
+    ScheduleBatch, ScheduleAllocation, PriorityLog, PriorityBatch,
+    HapConnection, HapMapping, HapFieldMapping,
+)
 
 __all__ = [
     "SyncBase", "SyncStatus",
@@ -15,4 +20,7 @@ __all__ = [
     "DemandPlan", "ScheduleResult", "ResourceCalendar", "ChangeoverMatrix",
     "BufferConfig", "SchedulePlan",
     "SolverConfig", "ScheduleTask",
+    "ProcessMaster", "ProcessSet", "ProcessRoute", "Order", "OrderOperation", "SystemParam",
+    "ScheduleBatch", "ScheduleAllocation", "PriorityLog", "PriorityBatch",
+    "HapConnection", "HapMapping", "HapFieldMapping",
 ]
