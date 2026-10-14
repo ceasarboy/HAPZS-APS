@@ -43,9 +43,8 @@
 
 ## 四、未决事项与续跑指南
 
-**下一步（计划 1 剩余）：**
-1. 最终整体代码审查（dispatch final reviewer）；
-2. `finishing-a-development-branch`（合并/保留分支决策）→ 推送 origin 同步。
+**下一步：**
+1. 计划 2 文档已编制：`docs/superpowers/plans/2026-10-14-mps-rework-plan2-calc-kernel.md`（核算内核移植，Tasks 1~6，含官方算例对齐与疑点双档）——**待执行**（subagent 驱动，每任务 spec + 质量双审）；
 
 **go-live 清理步骤建议（Task 8 评审提出，写入计划 6/部署文档）：**
 `pg_dump 备份 → dry-run 复核计数 → 停服（避免与 uvicorn/Celery 写并发）→ --execute → 复核计数为 0`。
