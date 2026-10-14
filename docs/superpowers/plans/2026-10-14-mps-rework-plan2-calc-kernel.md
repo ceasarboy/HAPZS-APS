@@ -119,6 +119,18 @@ def test_pick_mode_none_and_empty():
     assert pick_mode({"modes": []}, 1) is None
 
 
+def test_pick_mode_reversed_modes_order():
+    """行序反转（明道云同步后可能）仍按名称正确分流。"""
+    wc = {
+        "modes": [
+            {"mode": "自动DB", "flux_base": 6000, "split_threshold": 20},
+            {"mode": "半自动DB", "flux_base": 2000, "split_threshold": 20},
+        ]
+    }
+    assert pick_mode(wc, 10)["mode_name"] == "半自动DB"
+    assert pick_mode(wc, 20)["mode_name"] == "自动DB"
+
+
 def test_conv_factor_wb_second_group_and_default():
     p = {"cf_wb_1": 1, "cf_wb_2": 0.95, "cf_wb_3": 0.9}
     wb2 = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire-2"}
@@ -221,18 +233,22 @@ def required_fields(code: str, route_rows: list[dict]) -> list[dict]:
 
 
 def pick_mode(wc: dict | None, qty: float) -> dict | None:
-    """生产模式分流（CHK-FLUX-009/010/011）：按订单批量与阈值选半自动/自动。"""
+    """生产模式分流（CHK-FLUX-009/010/011）：按订单批量与阈值选半自动/自动。
+
+    按名称判定 semi/auto（不依赖 modes 行序——明道云同步后行序不保证）；
+    engine.js 在有序输入（半自动在前）下与本实现行为一致。
+    """
     if not wc or not wc.get("modes"):
         return None
     modes = wc["modes"]
     if len(modes) == 1:
         return {"mode": modes[0], "mode_name": modes[0].get("mode") or "/"}
-    threshold = nz(modes[0].get("split_threshold"), 0)
+    semi = next((m for m in modes if "半自动" in str(m.get("mode", ""))), modes[0])
     auto = next(
         (m for m in modes if "自动" in str(m.get("mode", "")) and "半自动" not in str(m.get("mode", ""))),
-        modes[1],
+        modes[-1],
     )
-    semi = modes[0]
+    threshold = nz(semi.get("split_threshold"), 0)
     chosen = semi if qty < threshold else auto
     return {"mode": chosen, "mode_name": chosen.get("mode") or "/"}
 
@@ -745,10 +761,11 @@ git commit -m "feat(kernel): calc_order 主体移植（官方算例对齐 + 双�
 
 ```python
 """上下文装载：种子库 → 内核输入；主数据变更后重算结果联动变化（CHK-CALC-004）。"""
+import pytest
 from sqlalchemy import select
 
 from app.models.mps import ProcessMaster, SystemParam
-from app.mps.context import load_ctx
+from app.mps.context import _NUMERIC_PARAM_KEYS, load_ctx
 from app.mps.kernel import calc_order
 from app.seed.loader import load_mps_seed
 
@@ -757,7 +774,8 @@ async def test_load_ctx_from_seed(sqlite_session):
     await load_mps_seed(sqlite_session)
     ctx = await load_ctx(sqlite_session)
     assert "M02-2D" in ctx["proc_map"] and len(ctx["route_map"]["M02-2D"]) == 5
-    assert ctx["wc_map"]["模块级|DB"]["modes"][1]["flux_base"] == 6000
+    db_modes = {m["mode"]: m for m in ctx["wc_map"]["模块级|DB"]["modes"]}
+    assert db_modes["自动DB"]["flux_base"] == 6000
     assert ctx["params"]["week_days"] == 6
     assert ctx["params"]["round_mode"] == "ceil"
     assert ctx["params"]["use_peak"] == "mean"
@@ -791,6 +809,41 @@ async def test_chk_calc_004_data_flow_linkage(sqlite_session):
     ctx2 = await load_ctx(sqlite_session)
     t2 = calc_order(order, ctx2)["bottleneck"]["throughput"]
     assert t1 == 100.0 and t2 == pytest.approx(50.0)  # 3000÷60
+
+
+async def test_load_params_invalid_falls_back_to_default(sqlite_session):
+    """非法数值参数回退 PARAM_DEFS 默认（而非静默归 0）。"""
+    await load_mps_seed(sqlite_session)
+    row = (await sqlite_session.execute(
+        select(SystemParam).where(SystemParam.key == "week_days")
+    )).scalar_one()
+    row.value = "abc"
+    await sqlite_session.commit()
+    ctx = await load_ctx(sqlite_session)
+    assert ctx["params"]["week_days"] == 6
+
+
+async def test_empty_db_ctx_and_error(sqlite_session):
+    ctx = await load_ctx(sqlite_session)
+    assert ctx["proc_map"] == {} and ctx["route_map"] == {} and ctx["wc_map"] == {}
+    with pytest.raises(ValueError):
+        calc_order({"code": "M02-2D", "qty": 1}, ctx)
+
+
+async def test_small_qty_uses_semi_mode(sqlite_session):
+    await load_mps_seed(sqlite_session)
+    ctx = await load_ctx(sqlite_session)
+    order = {"order_no": "S", "product": "模块-01", "code": "M02-2D", "order_type": "常规",
+             "first_flag": "否", "water_vapor": "有", "qty": 5, "features": {"N_die": 60, "N_wire": 60}}
+    r = calc_order(order, ctx)
+    assert r["steps"][0]["mode"] == "半自动DB"
+    assert r["bottleneck"]["throughput"] == pytest.approx(2000 / 60)
+
+
+def test_numeric_param_keys_subset_of_param_defs():
+    from app.mps.consts import PARAM_DEFS
+
+    assert set(_NUMERIC_PARAM_KEYS).issubset({p["key"] for p in PARAM_DEFS})
 ```
 
 （如文件缺 `import pytest` 请补上。）
@@ -804,12 +857,13 @@ async def test_chk_calc_004_data_flow_linkage(sqlite_session):
 ```python
 """内核上下文装载：数据库 → 内核输入 dict（proc_map/route_map/wc_map/params）。
 
-参数解析遵循 consts 约定：数值键一律转 float/int，枚举键保留字符串。
+参数解析遵循 consts 约定：数值键转数值（非法值/缺失回退 PARAM_DEFS 默认值），枚举键保留字符串。
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mps import ProcessMaster, ProcessRoute, ProcessSet, SystemParam
+from app.mps.consts import PARAM_DEFS
 from app.mps.kernel import nz
 
 _NUMERIC_PARAM_KEYS = (
@@ -818,15 +872,17 @@ _NUMERIC_PARAM_KEYS = (
     "vapor_cap_cut", "order_buffer_days", "reference_batch", "wb_auto_flux_override",
 )
 
+_PARAM_DEFAULTS = {d["key"]: d["value"] for d in PARAM_DEFS}
+
 
 async def load_params(session: AsyncSession) -> dict:
-    """系统参数：数值键转数值，枚举键保留字符串。"""
+    """系统参数：数值键转数值（非法/缺失回退 PARAM_DEFS 默认），枚举键保留字符串。"""
     rows = (await session.execute(select(SystemParam))).scalars().all()
     params: dict = {}
     for row in rows:
         key = row.key
         if key in _NUMERIC_PARAM_KEYS:
-            params[key] = nz(row.value, 0)
+            params[key] = nz(row.value, nz(_PARAM_DEFAULTS.get(key), 0))
         else:
             params[key] = row.value
     return params
@@ -870,7 +926,7 @@ def _wc_mode_dict(w: ProcessMaster) -> dict:
 
 - [ ] **Step 3.4: 运行确认通过**
 
-`... -m pytest tests/mps/test_kernel_context.py -v` → 预期 3 passed。
+`... -m pytest tests/mps/test_kernel_context.py -v` → 预期 7 passed（首发 3 + 质量跟进补 4）。
 
 - [ ] **Step 3.5: 提交**
 

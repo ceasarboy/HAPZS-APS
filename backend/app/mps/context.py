@@ -1,11 +1,12 @@
 """内核上下文装载：数据库 → 内核输入 dict（proc_map/route_map/wc_map/params）。
 
-参数解析遵循 consts 约定：数值键一律转 float/int，枚举键保留字符串。
+参数解析遵循 consts 约定：数值键转数值（非法值/缺失回退 PARAM_DEFS 默认值），枚举键保留字符串。
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mps import ProcessMaster, ProcessRoute, ProcessSet, SystemParam
+from app.mps.consts import PARAM_DEFS
 from app.mps.kernel import nz
 
 _NUMERIC_PARAM_KEYS = (
@@ -14,15 +15,17 @@ _NUMERIC_PARAM_KEYS = (
     "vapor_cap_cut", "order_buffer_days", "reference_batch", "wb_auto_flux_override",
 )
 
+_PARAM_DEFAULTS = {d["key"]: d["value"] for d in PARAM_DEFS}
+
 
 async def load_params(session: AsyncSession) -> dict:
-    """系统参数：数值键转数值，枚举键保留字符串。"""
+    """系统参数：数值键转数值（非法/缺失回退 PARAM_DEFS 默认），枚举键保留字符串。"""
     rows = (await session.execute(select(SystemParam))).scalars().all()
     params: dict = {}
     for row in rows:
         key = row.key
         if key in _NUMERIC_PARAM_KEYS:
-            params[key] = nz(row.value, 0)
+            params[key] = nz(row.value, nz(_PARAM_DEFAULTS.get(key), 0))
         else:
             params[key] = row.value
     return params

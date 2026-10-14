@@ -77,18 +77,22 @@ def required_fields(code: str, route_rows: list[dict]) -> list[dict]:
 
 
 def pick_mode(wc: dict | None, qty: float) -> dict | None:
-    """生产模式分流（CHK-FLUX-009/010/011）：按订单批量与阈值选半自动/自动。"""
+    """生产模式分流（CHK-FLUX-009/010/011）：按订单批量与阈值选半自动/自动。
+
+    按名称判定 semi/auto（不依赖 modes 行序——明道云同步后行序不保证）；
+    engine.js 在有序输入（半自动在前）下与本实现行为一致。
+    """
     if not wc or not wc.get("modes"):
         return None
     modes = wc["modes"]
     if len(modes) == 1:
         return {"mode": modes[0], "mode_name": modes[0].get("mode") or "/"}
-    threshold = nz(modes[0].get("split_threshold"), 0)
+    semi = next((m for m in modes if "半自动" in str(m.get("mode", ""))), modes[0])
     auto = next(
         (m for m in modes if "自动" in str(m.get("mode", "")) and "半自动" not in str(m.get("mode", ""))),
-        modes[1],
+        modes[-1],
     )
-    semi = modes[0]
+    threshold = nz(semi.get("split_threshold"), 0)
     chosen = semi if qty < threshold else auto
     return {"mode": chosen, "mode_name": chosen.get("mode") or "/"}
 

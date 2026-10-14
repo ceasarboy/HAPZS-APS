@@ -84,6 +84,18 @@ def test_pick_mode_none_and_empty():
     assert pick_mode({"modes": []}, 1) is None
 
 
+def test_pick_mode_reversed_modes_order():
+    """行序反转（明道云同步后可能）仍按名称正确分流。"""
+    wc = {
+        "modes": [
+            {"mode": "自动DB", "flux_base": 6000, "split_threshold": 20},
+            {"mode": "半自动DB", "flux_base": 2000, "split_threshold": 20},
+        ]
+    }
+    assert pick_mode(wc, 10)["mode_name"] == "半自动DB"
+    assert pick_mode(wc, 20)["mode_name"] == "自动DB"
+
+
 def test_conv_factor_wb_second_group_and_default():
     p = {"cf_wb_1": 1, "cf_wb_2": 0.95, "cf_wb_3": 0.9}
     wb2 = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire-2"}
