@@ -55,10 +55,11 @@
 - 转换脚本产物可补溯源字段（源路径+sha256+生成日期）与去掉无用 sys.path（观感项）；
 - `load_seed.py` 演示单跳过原因可打印（可观测性）。
 
-**计划 2 开工前建议动作（评审提出）：**
-- 模型-迁移漂移自动守卫：scoped `compare_metadata` / `alembic check` 固化为 pytest 或 CI 步骤（对 `TEST_PG_URL` 测试库）；
-- Task 7 合入时补"种子全部 distinct feature 均可被 FEATURE_MAP 解析"回归测试；
-- 视需要在计划 4/5 落地 Redis 短超时 ping / fail-open（当前无消费方）。
+**计划 2 开工前建议动作（评审提出）——状态：**
+- ✅ 模型-迁移漂移自动守卫（`ca8c572`，SQLite 基线版；含表集合盲区断言、PK/默认值维度、逐表断言、旧链常量不变量校验）+ WB 二档参数 + 参数解析约定；
+- ✅ 种子特征解析回归测试（Task 7 合入时已补）；
+- ⏸ Redis 短超时 ping / fail-open（计划 4/5，当前无消费方）；
+- 计划 2 内核实现时消费：`wb_auto_flux_override`（CHK-FLUX-015A/B 双档）、参数一律按数值语义解析。
 
 **运行命令速查（backend 目录）：**
 ```powershell

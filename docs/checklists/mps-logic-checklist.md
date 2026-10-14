@@ -51,8 +51,8 @@
 | CHK-FLUX-012 | 参考批量=1000只（MPS计算逻辑参数表D列，默认），用于基准通量模式判定；周计划负荷按订单实际批量动态分流 | V1.6 §五 5.2；表格5（参考批量维护位置） | 基准档按1000判定；周负荷按各订单实际批量各自分流 | tests/mps/test_kernel_flux.py::test_chk_flux_012_ref_batch_1000 | 待实现 |
 | CHK-FLUX-013 | 产品基准通量=MIN（路线各工序产品级均值通量）；瓶颈=取小工序，底表G列自动标出瓶颈工序 | V1.6 §五 5.4（E/F列MINIFS取小、G列瓶颈工序） | M02-2D：DB 100<WB 200→瓶颈=DB | tests/mps/test_kernel_flux.py::test_chk_flux_013_bottleneck_min | 待实现 |
 | CHK-FLUX-014 | 缺BOM特征参数时，仅"只产品N"类工序参与取小，H列提示"缺BOM特征参数" | V1.6 §五 5.4；§八④ | 未录特征时取小结果仅含只产品类工序并输出缺参提示 | tests/mps/test_kernel_flux.py::test_chk_flux_014_missing_feature_excluded | 待实现 |
-| CHK-FLUX-015A | 疑点·模块级WB自动通量取值A：12000根丝/天（V1.6 口径） | V1.6 表格4 | WB自动通量=12000，产品级通量=12000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015a_wb_auto_12000 | 阻塞(疑点) |
-| CHK-FLUX-015B | 疑点·模块级WB自动通量取值B：20000根丝/天 | V1.7 周计划汇总区（模块级自动WB 周可用 120000÷6=20000） | WB自动通量=20000，产品级通量=20000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015b_wb_auto_20000 | 阻塞(疑点) |
+| CHK-FLUX-015A | 疑点·模块级WB自动通量取值A：12000根丝/天（V1.6 口径）；实现用 `wb_auto_flux_override=12000` | V1.6 表格4 | WB自动通量=12000，产品级通量=12000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015a_wb_auto_12000 | 阻塞(疑点) |
+| CHK-FLUX-015B | 疑点·模块级WB自动通量取值B：20000根丝/天；实现用 `wb_auto_flux_override=20000` | V1.7 周计划汇总区（模块级自动WB 周可用 120000÷6=20000） | WB自动通量=20000，产品级通量=20000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015b_wb_auto_20000 | 阻塞(疑点) |
 | CHK-DELIVERY-001 | 批量总装配周期=T单件+批量项（投料量口径） | V1.6 §三（批量总装配周期）；表6 | M02-2D：6+10=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_001_batch_cycle_sum | 待实现 |
 | CHK-DELIVERY-002 | 批量项=(投料量−瓶颈通量)÷瓶颈通量；计算为负时取0 | V1.7 逻辑⑩ 原文（批量项负值取0） | 投料量≤瓶颈通量→批量项=0 | tests/mps/test_kernel_delivery.py::test_chk_delivery_002_batch_term_formula | 待实现 |
 | CHK-DELIVERY-003A | 疑点·批量项取整取值A：向上取整⌈⌉（V1.6 算例口径）→6+⌈9.52⌉=16天 | V1.6 §九 表6（⌈(1052−100)/100⌉） | M02-2D 批量周期=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003a_batch_term_ceil | 阻塞(疑点) |

@@ -25,6 +25,7 @@ def test_param_defs_unique_and_defaults():
     assert defs["reference_batch"]["value"] == "1000"
     assert defs["round_mode"]["value"] == "exact"
     assert defs["ramp_trigger"]["value"] == "first_flag"
+    assert defs["wb_auto_flux_override"]["value"] == "0"
 
 
 def test_feature_map_key_snapshot():
