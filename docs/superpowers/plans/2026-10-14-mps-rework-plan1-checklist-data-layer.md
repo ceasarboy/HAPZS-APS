@@ -30,12 +30,32 @@
 
 ---
 
+## 执行状态（截至 2026-10-14 收工）
+
+| Task | 状态 | 提交 |
+|---|---|---|
+| 0 git 基线 | ✅ 完成 | `4a85584`（master 基线）→ 分支 `mps-rework` |
+| 1 MPS check-list 提取 | ✅ 完成（101 条，spec+质量双审通过并修复） | `a3332ce` `9bc512d` `2bfbfaf` `c18f386` |
+| 2 双库引擎与 pytest 基础 | ✅ 完成（含质量修复：init_schema 守卫/PG 强校验/补测/版本锁定） | `575d9ef` `31a1961` |
+| 3 MPS 模型 13 表 | ✅ 完成（含质量修复：索引对齐/JSON 可变追踪/约束测试补强） | `b5961aa` `89a9506` |
+| 4 Alembic 迁移 | ✅ 完成（stamp/upgrade/downgrade 验证 + DDL 等价核验） | `2d28c1f` `61e61da` |
+| 5 启动适配 | ✅ 完成（本地模式实测 + Redis 降级实测 + PG fail-fast 单测） | `124a645` `3fa0f34` |
+| 6 MPS 常量模块 | ✅ 完成（含快照测试补强与 7 参数延后记录） | `bf531f3` `c41f5bd` |
+| 7 种子转换/加载/导入 | ⏸ 未开始（下一步首任务） | — |
+| 8 旧数据清理 + 全量回归 | ⏸ 未开始 | — |
+| 最终整体代码审查 | ⏸ 待 Task 7/8 完成后 | — |
+
+- 测试基线：**40 passed, 1 skipped**（内嵌 Python `offline\runtime\python`，PG 用例按需跳过）。
+- 执行环境要点与经验教训：见 `docs/superpowers/plans/2026-10-14-mps-rework-plan1-execution-log.md`。
+
+---
+
 ### Task 0: 基线版本控制
 
 **Files:**
 - Modify: `.gitignore`
 
-- [ ] **Step 0.1: 初始化 git 并追加忽略项**
+- [x] **Step 0.1: 初始化 git 并追加忽略项**
 
 本目录当前不是 git 仓库（`git rev-parse --is-inside-work-tree` 报错）。若不希望使用 git，可跳过本任务及后续所有"提交"步骤。
 
@@ -47,7 +67,7 @@ backend/.tmp/
 backend/data/
 ```
 
-- [ ] **Step 0.2: 初始化并基线提交**
+- [x] **Step 0.2: 初始化并基线提交**
 
 （在仓库根目录执行）
 ```bash
@@ -66,7 +86,7 @@ Expected: `git status` 干净；`git log --oneline` 显示 1 条提交。
 - Create: `docs/checklists/mps-logic-checklist.md`
 - 临时产物（不入库）：`backend/.tmp/mps-extract/*.md`
 
-- [ ] **Step 1.1: 编写提取脚本**
+- [x] **Step 1.1: 编写提取脚本**
 
 创建 `backend/tools/extract_mps_docs.py`（只读 MPS 目录，输出到 `backend/.tmp/mps-extract/`）：
 
@@ -128,7 +148,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 1.2: 运行提取**
+- [x] **Step 1.2: 运行提取**
 
 （在 `backend` 目录）
 ```powershell
@@ -139,7 +159,7 @@ Expected: 打印 3 个文件名；`backend/.tmp/mps-extract/` 下生成 3 个 `.
 - `封装架构与成套工艺清单-V1.7.md`（多个工作表）
 - `模块工单-1007测试样本.md`
 
-- [ ] **Step 1.3: 编制 Check-list 文档**
+- [x] **Step 1.3: 编制 Check-list 文档**
 
 创建 `docs/checklists/mps-logic-checklist.md`。逐条通读三份提取文件，按下列格式穷尽整理业务规则：
 
@@ -180,7 +200,7 @@ Expected: 打印 3 个文件名；`backend/.tmp/mps-extract/` 下生成 3 个 `.
 5. 预估 90~120 条；若 <90 条，对照提取文件重新扫查遗漏；
 6. 编号全局唯一，每条"测试用例"列有命名（允许"待实现"状态）。
 
-- [ ] **Step 1.4: 核对与提交**
+- [x] **Step 1.4: 核对与提交**
 
 ```bash
 git add docs/checklists/mps-logic-checklist.md backend/tools/extract_mps_docs.py
@@ -199,7 +219,7 @@ git commit -m "docs: MPS 业务逻辑 check-list 与提取工具"
 - Create: `backend/tests/mps/conftest.py`
 - Create: `backend/tests/mps/test_database_dual.py`
 
-- [ ] **Step 2.1: 追加依赖**
+- [x] **Step 2.1: 追加依赖**
 
 在 `backend/requirements.txt` 末尾追加：
 ```
@@ -209,7 +229,7 @@ pytest-asyncio>=0.24
 ```
 （在 `backend` 目录）`pip install -r requirements.txt`
 
-- [ ] **Step 2.2: pytest 配置**
+- [x] **Step 2.2: pytest 配置**
 
 创建 `backend/pytest.ini`：
 ```ini
@@ -220,7 +240,7 @@ testpaths = tests
 
 创建空文件 `backend/tests/mps/__init__.py`。
 
-- [ ] **Step 2.3: 编写失败测试（双库引擎）**
+- [x] **Step 2.3: 编写失败测试（双库引擎）**
 
 创建 `backend/tests/mps/test_database_dual.py`：
 ```python
@@ -269,7 +289,7 @@ async def test_pg_engine_connect():
     await engine.dispose()
 ```
 
-- [ ] **Step 2.4: 运行测试确认失败**
+- [x] **Step 2.4: 运行测试确认失败**
 
 （在 `backend` 目录）
 ```powershell
@@ -277,7 +297,7 @@ python -m pytest tests/mps/test_database_dual.py -v
 ```
 Expected: FAIL —— `ImportError: cannot import name 'engine_kwargs' from 'app.database'`。
 
-- [ ] **Step 2.5: 改造 `backend/app/database.py`**
+- [x] **Step 2.5: 改造 `backend/app/database.py`**
 
 将文件开头（engine 创建部分）替换为下述完整内容（`get_db` 函数保持不变，保留在文件末尾）：
 
@@ -364,7 +384,7 @@ async def get_db() -> AsyncSession:
             await session.close()
 ```
 
-- [ ] **Step 2.6: 创建测试夹具 `backend/tests/mps/conftest.py`**
+- [x] **Step 2.6: 创建测试夹具 `backend/tests/mps/conftest.py`**
 
 ```python
 """MPS 测试公共夹具：SQLite 临时库（默认）与 PostgreSQL 测试库（可选）。"""
@@ -414,14 +434,14 @@ async def pg_session():
     await engine.dispose()
 ```
 
-- [ ] **Step 2.7: 运行测试确认通过**
+- [x] **Step 2.7: 运行测试确认通过**
 
 ```powershell
 python -m pytest tests/mps/test_database_dual.py -v
 ```
 Expected: 4 passed, 1 skipped（PG 未配置时）。
 
-- [ ] **Step 2.8: 提交**
+- [x] **Step 2.8: 提交**
 
 ```bash
 git add backend/requirements.txt backend/pytest.ini backend/tests/mps backend/app/database.py
@@ -437,7 +457,7 @@ git commit -m "feat(db): 双库引擎（SQLite/PG）与 pytest 基础设施"
 - Modify: `backend/app/models/__init__.py`
 - Create: `backend/tests/mps/test_mps_models.py`
 
-- [ ] **Step 3.1: 编写失败测试**
+- [x] **Step 3.1: 编写失败测试**
 
 创建 `backend/tests/mps/test_mps_models.py`：
 ```python
@@ -559,14 +579,14 @@ async def test_order_defaults_and_sync_status(sqlite_session):
     assert raw[0] == "SYNCED"
 ```
 
-- [ ] **Step 3.2: 运行测试确认失败**
+- [x] **Step 3.2: 运行测试确认失败**
 
 ```powershell
 python -m pytest tests/mps/test_mps_models.py -v
 ```
 Expected: FAIL —— `ModuleNotFoundError: No module named 'app.models.mps'`。
 
-- [ ] **Step 3.3: 创建 `backend/app/models/mps.py`**
+- [x] **Step 3.3: 创建 `backend/app/models/mps.py`**
 
 ```python
 """MPS 封测业务数据模型（新业务核心表）。
@@ -834,7 +854,7 @@ class HapFieldMapping(SyncBase):
     manual_override: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否手工调整过")
 ```
 
-- [ ] **Step 3.4: 修改 `backend/app/models/__init__.py`**
+- [x] **Step 3.4: 修改 `backend/app/models/__init__.py`**
 
 在 `from .schedule import ScheduleTask` 之后追加（并把新类加入 `__all__`）：
 
@@ -853,14 +873,14 @@ from .mps import (
     "HapConnection", "HapMapping", "HapFieldMapping",
 ```
 
-- [ ] **Step 3.5: 运行测试确认通过**
+- [x] **Step 3.5: 运行测试确认通过**
 
 ```powershell
 python -m pytest tests/mps/test_mps_models.py -v
 ```
 Expected: 6 passed。
 
-- [ ] **Step 3.6: 提交**
+- [x] **Step 3.6: 提交**
 
 ```bash
 git add backend/app/models/mps.py backend/app/models/__init__.py backend/tests/mps/test_mps_models.py
@@ -874,7 +894,7 @@ git commit -m "feat(models): MPS 核心 13 表模型"
 **Files:**
 - Create: `backend/alembic/versions/<auto>_add_mps_core_tables.py`（由命令生成后填充）
 
-- [ ] **Step 4.1: 记录当前迁移头并生成空迁移**
+- [x] **Step 4.1: 记录当前迁移头并生成空迁移**
 
 ```powershell
 cd backend
@@ -887,7 +907,7 @@ alembic revision -m "add mps core tables"
 ```
 Expected: 生成 `alembic/versions/<rev>_add_mps_core_tables.py`，其 `down_revision` 自动指向 `<OLD_HEAD>`。
 
-- [ ] **Step 4.2: 填充迁移内容**
+- [x] **Step 4.2: 填充迁移内容**
 
 用以下代码替换生成文件的全部内容（保留文件头的 `revision/down_revision` 自动生成值，不要改动这两个变量）：
 
@@ -1184,7 +1204,7 @@ def downgrade() -> None:
 
 **执行约束（防止与模型 DDL 漂移）**：逐字使用上述迁移代码：不要给任何列添加 `server_default`（`sync_status` 除外）、不要使用 PG 专有类型（JSONB/UUID）、不要为 unique 约束命名（保持与 SQLAlchemy 默认一致）、索引命名必须为 `ix_<table>_<column>`。
 
-- [ ] **Step 4.3: 验证迁移（SQLite 干跑，避免依赖 PG）**
+- [x] **Step 4.3: 验证迁移（SQLite 干跑，避免依赖 PG）**
 
 ```powershell
 $env:DATABASE_URL="sqlite+aiosqlite:///./data/alembic_check.db"
@@ -1197,7 +1217,7 @@ Remove-Item Env:DATABASE_URL
 ```
 Expected: 三条 alembic 命令均无报错；`upgrade head` 后 `alembic current` 显示 `<newrev> (head)`。（若 data 目录不存在，先 `New-Item -ItemType Directory data -Force`。）
 
-- [ ] **Step 4.4: 提交**
+- [x] **Step 4.4: 提交**
 
 ```bash
 git add backend/alembic/versions/
@@ -1212,7 +1232,7 @@ git commit -m "feat(db): MPS 核心 13 表 Alembic 迁移"
 - Modify: `backend/app/main.py`
 - Modify: `backend/.env.example`
 
-- [ ] **Step 5.1: 修改 `backend/app/main.py` lifespan**
+- [x] **Step 5.1: 修改 `backend/app/main.py` lifespan**
 
 导入区追加：
 ```python
@@ -1241,7 +1261,7 @@ from app.database import init_schema, is_sqlite
             raise
 ```
 
-- [ ] **Step 5.2: 更新 `backend/.env.example`**
+- [x] **Step 5.2: 更新 `backend/.env.example`**
 
 在 `DATABASE_URL=postgresql+asyncpg://...` 行后追加注释与本地模式示例：
 ```
@@ -1249,7 +1269,7 @@ from app.database import init_schema, is_sqlite
 # DATABASE_URL=sqlite+aiosqlite:///./data/mps.db
 ```
 
-- [ ] **Step 5.3: 手工验证本地模式启动（无 Redis、无明道云）**
+- [x] **Step 5.3: 手工验证本地模式启动（无 Redis、无明道云）**
 
 ```powershell
 $env:DATABASE_URL="sqlite+aiosqlite:///./data/mps.db"
@@ -1262,7 +1282,7 @@ Expected（日志）：
 
 验证后停止服务（Ctrl+C）；`backend/data/mps.db` 已生成 13 张新表。
 
-- [ ] **Step 5.4: 提交**
+- [x] **Step 5.4: 提交**
 
 ```bash
 git add backend/app/main.py backend/.env.example
@@ -1278,7 +1298,7 @@ git commit -m "feat(startup): SQLite 自动建表与本地模式 Redis 降级"
 - Create: `backend/app/mps/consts.py`
 - Create: `backend/tests/mps/test_consts.py`
 
-- [ ] **Step 6.1: 编写失败测试**
+- [x] **Step 6.1: 编写失败测试**
 
 创建 `backend/tests/mps/test_consts.py`：
 ```python
@@ -1334,14 +1354,14 @@ def test_feature_map_values_are_feature_keys():
         assert set(keys).issubset(field_keys)
 ```
 
-- [ ] **Step 6.2: 运行确认失败**
+- [x] **Step 6.2: 运行确认失败**
 
 ```powershell
 python -m pytest tests/mps/test_consts.py -v
 ```
 Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps'`。
 
-- [ ] **Step 6.3: 创建 `backend/app/mps/consts.py`**
+- [x] **Step 6.3: 创建 `backend/app/mps/consts.py`**
 
 （内容为 `D:\MPS\mps-web\src\consts.js` 的 1:1 移植 + 新增 4 个参数；键名必须与测试一致）
 
@@ -1402,14 +1422,14 @@ PARAM_DEFS: list[dict] = [
 ]
 ```
 
-- [ ] **Step 6.4: 运行确认通过**
+- [x] **Step 6.4: 运行确认通过**
 
 ```powershell
 python -m pytest tests/mps/test_consts.py -v
 ```
 Expected: 3 passed。
 
-- [ ] **Step 6.5: 提交**
+- [x] **Step 6.5: 提交**
 
 ```bash
 git add backend/app/mps backend/tests/mps/test_consts.py
