@@ -1,6 +1,4 @@
 """内核单点函数：本地工具 / 加急 / 分流 / 特征用量 / 折算系数 / 必填字段。"""
-import pytest
-
 from app.mps.kernel import (
     ceil_int, conv_factor, feature_usage, nz, pick_mode, ramp_flux_factor,
     required_fields, urgent_cycle,
@@ -47,7 +45,7 @@ def test_pick_mode_module_db_split():
 def test_feature_usage_and_missing():
     step = {"feature": "DB-芯片数N_die"}
     assert feature_usage(step, {"N_die": 60}) == {"key": "N_die", "usage": 60, "missing": False}
-    assert feature_usage(step, {})["missing"] is True      # CHK-FLUX-018 缺参
+    assert feature_usage(step, {})["missing"] is True      # CHK-FLUX-014 缺参
     assert feature_usage({"feature": "工单产品数量N"}, {}) == {"key": "N", "usage": 1, "missing": False}
     assert feature_usage({"feature": "不存在的特征"}, {})["missing"] is True
 
@@ -78,3 +76,24 @@ def test_required_fields():
     assert keys == ["N_die", "Y_die", "N_wire", "Y_wire"]  # 按 FEATURE_FIELDS 顺序，seq 排序
     unmapped = required_fields("Z", [{"code": "Z", "seq": 1, "feature": "未知-特征X"}])
     assert unmapped[0]["unmapped"] is True
+
+
+def test_pick_mode_none_and_empty():
+    assert pick_mode(None, 1) is None
+    assert pick_mode({}, 1) is None
+    assert pick_mode({"modes": []}, 1) is None
+
+
+def test_conv_factor_wb_second_group_and_default():
+    p = {"cf_wb_1": 1, "cf_wb_2": 0.95, "cf_wb_3": 0.9}
+    wb2 = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire-2"}
+    assert conv_factor(wb2, {"Y_wire": 1, "Y_wire2": 3}, p) == 0.9   # 第2组走 Y_wire2
+    wb = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire"}
+    assert conv_factor(wb, {}, p) == 1.0                            # 缺键默认 1 种
+
+
+def test_feature_usage_zero_empty_missing():
+    step = {"feature": "DB-芯片数N_die"}
+    assert feature_usage(step, {"N_die": 0})["missing"] is True
+    assert feature_usage(step, {"N_die": ""})["missing"] is True
+    assert feature_usage(step, {"N_die": -1})["missing"] is True

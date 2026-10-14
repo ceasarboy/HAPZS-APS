@@ -3,7 +3,14 @@
 约定：
 - 纯函数：输入订单 dict + 上下文 dict（proc_map/route_map/wc_map/params），输出结果 dict；
 - 参数一律按数值/枚举语义解析（见 consts.PARAM_DEFS 约定）；
-- 结果键名与 mps-web 结果结构保持同构（snake_case），便于逐项对照与后续计划消费。
+- 结果键名与 mps-web 结果结构保持同构（snake_case），便于逐项对照与后续计划消费；
+- 下游消费约定：feature_usage 的 missing=True 时不可使用 usage（Task2 置 thr=None、Task4 load 跳过）；
+  required_fields 对重复未映射特征不去重（JS 保真）。
+
+与 engine.js 的已知微观差异（均不在业务数据路径上）：
+1) nz(" ")：JS Number(" ")=0；本实现 float(" ") 失败 → 返回默认值；
+2) feature_usage 遇非数值串：JS 得 usage=NaN/missing=false；本实现返回 missing=True（更安全的收紧）；
+3) pick_mode 的 qty 须为数值（JS 隐式转换，Python 会 TypeError）——调用方先 nz。
 """
 from __future__ import annotations
 
@@ -35,7 +42,10 @@ def urgent_cycle(t: float) -> float:
 
 
 def ramp_flux_factor(day_index: float, ramp_days: float) -> float:
-    """爬坡期第 t 天有效通量系数 = min(1, t/T)（CHK-CYCLE-008；仅产能校验折算用）。"""
+    """爬坡期第 t 天有效通量系数 = min(1, t/T)（CHK-CYCLE-008；仅产能校验折算用）。
+
+    暂无调用方：待计划 3（排产解码/产能校验）或计划 5 接入。
+    """
     t = nz(ramp_days, 0)
     if t <= 0:
         return 1.0
@@ -61,7 +71,7 @@ def required_fields(code: str, route_rows: list[dict]) -> list[dict]:
 
 
 def pick_mode(wc: dict | None, qty: float) -> dict | None:
-    """生产模式分流（CHK-FLUX-001/010/011）：按订单批量与阈值选半自动/自动。"""
+    """生产模式分流（CHK-FLUX-009/010/011）：按订单批量与阈值选半自动/自动。"""
     if not wc or not wc.get("modes"):
         return None
     modes = wc["modes"]
@@ -78,7 +88,7 @@ def pick_mode(wc: dict | None, qty: float) -> dict | None:
 
 
 def feature_usage(step: dict, feats: dict) -> dict:
-    """工序在某产品下的单只特征用量（CHK-FLUX-018 缺参标记）。"""
+    """工序在某产品下的单只特征用量（CHK-FLUX-014 缺参排除）。"""
     mapped = FEATURE_MAP.get(step.get("feature") or "", [])
     if step.get("feature") == "工单产品数量N":
         return {"key": "N", "usage": 1, "missing": False}
@@ -92,7 +102,7 @@ def feature_usage(step: dict, feats: dict) -> dict:
 
 
 def conv_factor(step: dict, feats: dict, p: dict) -> float:
-    """折算系数（CHK-FLUX-005/006/017）：DB 按胶水类型数、WB 按引线类型数。"""
+    """折算系数（CHK-FLUX-006/007/008/017）：DB 按胶水类型数、WB 按引线类型数。"""
     field = step.get("cf_field")
     if not field or field == "/":
         return 1.0

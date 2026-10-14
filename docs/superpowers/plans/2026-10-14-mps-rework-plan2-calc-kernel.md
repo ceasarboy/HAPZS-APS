@@ -34,8 +34,6 @@
 
 ```python
 """内核单点函数：本地工具 / 加急 / 分流 / 特征用量 / 折算系数 / 必填字段。"""
-import pytest
-
 from app.mps.kernel import (
     ceil_int, conv_factor, feature_usage, nz, pick_mode, ramp_flux_factor,
     required_fields, urgent_cycle,
@@ -82,7 +80,7 @@ def test_pick_mode_module_db_split():
 def test_feature_usage_and_missing():
     step = {"feature": "DB-芯片数N_die"}
     assert feature_usage(step, {"N_die": 60}) == {"key": "N_die", "usage": 60, "missing": False}
-    assert feature_usage(step, {})["missing"] is True      # CHK-FLUX-018 缺参
+    assert feature_usage(step, {})["missing"] is True      # CHK-FLUX-014 缺参
     assert feature_usage({"feature": "工单产品数量N"}, {}) == {"key": "N", "usage": 1, "missing": False}
     assert feature_usage({"feature": "不存在的特征"}, {})["missing"] is True
 
@@ -113,6 +111,27 @@ def test_required_fields():
     assert keys == ["N_die", "Y_die", "N_wire", "Y_wire"]  # 按 FEATURE_FIELDS 顺序，seq 排序
     unmapped = required_fields("Z", [{"code": "Z", "seq": 1, "feature": "未知-特征X"}])
     assert unmapped[0]["unmapped"] is True
+
+
+def test_pick_mode_none_and_empty():
+    assert pick_mode(None, 1) is None
+    assert pick_mode({}, 1) is None
+    assert pick_mode({"modes": []}, 1) is None
+
+
+def test_conv_factor_wb_second_group_and_default():
+    p = {"cf_wb_1": 1, "cf_wb_2": 0.95, "cf_wb_3": 0.9}
+    wb2 = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire-2"}
+    assert conv_factor(wb2, {"Y_wire": 1, "Y_wire2": 3}, p) == 0.9   # 第2组走 Y_wire2
+    wb = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire"}
+    assert conv_factor(wb, {}, p) == 1.0                            # 缺键默认 1 种
+
+
+def test_feature_usage_zero_empty_missing():
+    step = {"feature": "DB-芯片数N_die"}
+    assert feature_usage(step, {"N_die": 0})["missing"] is True
+    assert feature_usage(step, {"N_die": ""})["missing"] is True
+    assert feature_usage(step, {"N_die": -1})["missing"] is True
 ```
 
 - [ ] **Step 1.2: 运行确认失败**
@@ -128,7 +147,14 @@ Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps.kernel'`。
 约定：
 - 纯函数：输入订单 dict + 上下文 dict（proc_map/route_map/wc_map/params），输出结果 dict；
 - 参数一律按数值/枚举语义解析（见 consts.PARAM_DEFS 约定）；
-- 结果键名与 mps-web 结果结构保持同构（snake_case），便于逐项对照与后续计划消费。
+- 结果键名与 mps-web 结果结构保持同构（snake_case），便于逐项对照与后续计划消费；
+- 下游消费约定：feature_usage 的 missing=True 时不可使用 usage（Task2 置 thr=None、Task4 load 跳过）；
+  required_fields 对重复未映射特征不去重（JS 保真）。
+
+与 engine.js 的已知微观差异（均不在业务数据路径上）：
+1) nz(" ")：JS Number(" ")=0；本实现 float(" ") 失败 → 返回默认值；
+2) feature_usage 遇非数值串：JS 得 usage=NaN/missing=false；本实现返回 missing=True（更安全的收紧）；
+3) pick_mode 的 qty 须为数值（JS 隐式转换，Python 会 TypeError）——调用方先 nz。
 """
 from __future__ import annotations
 
@@ -160,7 +186,10 @@ def urgent_cycle(t: float) -> float:
 
 
 def ramp_flux_factor(day_index: float, ramp_days: float) -> float:
-    """爬坡期第 t 天有效通量系数 = min(1, t/T)（CHK-CYCLE-008；仅产能校验折算用）。"""
+    """爬坡期第 t 天有效通量系数 = min(1, t/T)（CHK-CYCLE-008；仅产能校验折算用）。
+
+    暂无调用方：待计划 3（排产解码/产能校验）或计划 5 接入。
+    """
     t = nz(ramp_days, 0)
     if t <= 0:
         return 1.0
@@ -186,7 +215,7 @@ def required_fields(code: str, route_rows: list[dict]) -> list[dict]:
 
 
 def pick_mode(wc: dict | None, qty: float) -> dict | None:
-    """生产模式分流（CHK-FLUX-001/010/011）：按订单批量与阈值选半自动/自动。"""
+    """生产模式分流（CHK-FLUX-009/010/011）：按订单批量与阈值选半自动/自动。"""
     if not wc or not wc.get("modes"):
         return None
     modes = wc["modes"]
@@ -203,7 +232,7 @@ def pick_mode(wc: dict | None, qty: float) -> dict | None:
 
 
 def feature_usage(step: dict, feats: dict) -> dict:
-    """工序在某产品下的单只特征用量（CHK-FLUX-018 缺参标记）。"""
+    """工序在某产品下的单只特征用量（CHK-FLUX-014 缺参排除）。"""
     mapped = FEATURE_MAP.get(step.get("feature") or "", [])
     if step.get("feature") == "工单产品数量N":
         return {"key": "N", "usage": 1, "missing": False}
@@ -217,7 +246,7 @@ def feature_usage(step: dict, feats: dict) -> dict:
 
 
 def conv_factor(step: dict, feats: dict, p: dict) -> float:
-    """折算系数（CHK-FLUX-005/006/017）：DB 按胶水类型数、WB 按引线类型数。"""
+    """折算系数（CHK-FLUX-006/007/008/017）：DB 按胶水类型数、WB 按引线类型数。"""
     field = step.get("cf_field")
     if not field or field == "/":
         return 1.0
@@ -344,7 +373,7 @@ def test_chk_cycle_005_vapor_cap():
 
 def test_chk_cycle_006_007_ramp():
     r1 = calc_order(_order(first_flag="首单"), _ctx_m02_2d())
-    assert r1["ramp"]["used"] == 1 and r1["delivery"]["days"] == 17   # 16+1+... 缓冲含
+    assert r1["ramp"]["used"] == 1 and r1["delivery"]["days"] == 18   # 16 + 1 爬坡 + 1 缓冲
     r2 = calc_order(_order(first_flag="复线"), _ctx_m02_2d())
     assert r2["ramp"]["used"] == 1
     r3 = calc_order(_order(first_flag="否"), _ctx_m02_2d())
