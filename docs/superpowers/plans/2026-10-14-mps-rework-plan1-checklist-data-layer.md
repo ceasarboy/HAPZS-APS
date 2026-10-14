@@ -41,11 +41,11 @@
 | 4 Alembic 迁移 | ✅ 完成（stamp/upgrade/downgrade 验证 + DDL 等价核验） | `2d28c1f` `61e61da` |
 | 5 启动适配 | ✅ 完成（本地模式实测 + Redis 降级实测 + PG fail-fast 单测） | `124a645` `3fa0f34` |
 | 6 MPS 常量模块 | ✅ 完成（含快照测试补强与 7 参数延后记录） | `bf531f3` `c41f5bd` |
-| 7 种子转换/加载/导入 | ⏸ 未开始（下一步首任务） | — |
-| 8 旧数据清理 + 全量回归 | ⏸ 未开始 | — |
-| 最终整体代码审查 | ⏸ 待 Task 7/8 完成后 | — |
+| 7 种子转换/加载/导入 | ✅ 完成（74KB 固化种子；保真/幂等/特征回归复核通过） | `49eff32` `cc17674` |
+| 8 旧数据清理 + 全量回归 | ⏳ 待执行（本次继续） | — |
+| 最终整体代码审查 | ⏸ 待 Task 8 完成后 | — |
 
-- 测试基线：**40 passed, 1 skipped**（内嵌 Python `offline\runtime\python`，PG 用例按需跳过）。
+- 测试基线：**46 passed, 1 skipped**（内嵌 Python `offline\runtime\python`，PG 用例按需跳过）。
 - 执行环境要点与经验教训：见 `docs/superpowers/plans/2026-10-14-mps-rework-plan1-execution-log.md`。
 
 ---
@@ -1448,7 +1448,7 @@ git commit -m "feat(mps): 特征/映射/参数常量（移植 consts.js）"
 - Create: `backend/tools/load_seed.py`
 - Create: `backend/tests/mps/test_seed_loader.py`
 
-- [ ] **Step 7.1: 编写转换脚本并生成种子文件**
+- [x] **Step 7.1: 编写转换脚本并生成种子文件**
 
 创建 `backend/tools/convert_mps_seed.py`：
 
@@ -1549,7 +1549,7 @@ python tools/convert_mps_seed.py
 ```
 Expected: `workcenters=28 processes=24 routes=133 orders=20`。
 
-- [ ] **Step 7.2: 编写失败测试**
+- [x] **Step 7.2: 编写失败测试**
 
 创建 `backend/tests/mps/test_seed_loader.py`：
 ```python
@@ -1620,14 +1620,14 @@ async def test_seed_params_fallback_defaults(sqlite_session):
     assert p2.value == "1.1"
 ```
 
-- [ ] **Step 7.3: 运行确认失败**
+- [x] **Step 7.3: 运行确认失败**
 
 ```powershell
 python -m pytest tests/mps/test_seed_loader.py -v
 ```
 Expected: FAIL —— `ModuleNotFoundError: No module named 'app.seed'`。
 
-- [ ] **Step 7.4: 创建 `backend/app/seed/loader.py`**
+- [x] **Step 7.4: 创建 `backend/app/seed/loader.py`**
 
 ```python
 """MPS 种子数据导入器：幂等；系统参数只补缺失、不覆盖用户已改值。
@@ -1716,7 +1716,7 @@ async def load_mps_seed(session: AsyncSession, with_demo_orders: bool = False) -
     }
 ```
 
-- [ ] **Step 7.5: 创建 `backend/tools/load_seed.py`**
+- [x] **Step 7.5: 创建 `backend/tools/load_seed.py`**
 
 ```python
 """导入 MPS 种子数据。
@@ -1754,14 +1754,14 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-- [ ] **Step 7.6: 运行测试确认通过**
+- [x] **Step 7.6: 运行测试确认通过**
 
 ```powershell
 python -m pytest tests/mps/test_seed_loader.py -v
 ```
 Expected: 5 passed。
 
-- [ ] **Step 7.7: 提交**
+- [x] **Step 7.7: 提交**
 
 ```bash
 git add backend/tools/convert_mps_seed.py backend/tools/load_seed.py backend/app/seed backend/tests/mps/test_seed_loader.py

@@ -9,10 +9,10 @@
 
 | 项 | 结果 |
 |---|---|
-| 完成范围 | Task 0~6 / 共 9 项（Task 7 种子、Task 8 清理与全量回归、最终整体审查 未开始） |
-| 测试基线 | **40 passed, 1 skipped**（内嵌 Python 3.13.5；PG 用例需 `TEST_PG_URL` 时全跑） |
-| 提交序列 | `4a85584`(基线) → `a3332ce` `9bc512d` `2bfbfaf` `c18f386`(Task1) → `575d9ef` `31a1961`(Task2) → `b5961aa` `89a9506`(Task3) → `2d28c1f` `61e61da`(Task4) → `124a645` `3fa0f34`(Task5) → `bf531f3` `c41f5bd`(Task6)，共 15 提交 |
-| 主要交付物 | ① check-list 101 条（含测试用例命名与覆盖自查）② MPS 13 张表模型 ③ Alembic 迁移 `62ad14d88051` ④ SQLite/PG 双库引擎 ⑤ 本地模式启动（自动建表+Redis 降级）⑥ 特征/参数常量模块 |
+| 完成范围 | Task 0~7 / 共 9 项（Task 8 清理与全量回归、最终整体审查 未开始） |
+| 测试基线 | **46 passed, 1 skipped**（内嵌 Python 3.13.5；PG 用例需 `TEST_PG_URL` 时全跑） |
+| 提交序列 | `4a85584`(基线) → `a3332ce` `9bc512d` `2bfbfaf` `c18f386`(Task1) → `575d9ef` `31a1961`(Task2) → `b5961aa` `89a9506`(Task3) → `2d28c1f` `61e61da`(Task4) → `124a645` `3fa0f34`(Task5) → `bf531f3` `c41f5bd`(Task6) → `49eff32` `cc17674`(Task7) |
+| 主要交付物 | ① check-list 101 条（含测试用例命名与覆盖自查）② MPS 13 张表模型 ③ Alembic 迁移 `62ad14d88051` ④ SQLite/PG 双库引擎 ⑤ 本地模式启动（自动建表+Redis 降级）⑥ 特征/参数常量模块 ⑦ 固化种子（28 工序行/24 成套工艺/133 路线/20 演示单）+ 幂等加载器 + CLI |
 
 ## 二、关键决策记录
 
@@ -42,9 +42,14 @@
 ## 四、未决事项与续跑指南
 
 **下一步（计划 1 剩余）：**
-1. Task 7 种子转换/加载/导入（转换脚本读 `D:\MPS\mps-web\seed.json` 只读，产物 `backend/app/seed/mps_seed.json` + `demo_orders.json`；loader 参数只补缺失；demo 单 only-once）；
-2. Task 8 旧数据清理（dry-run 默认）+ 全量回归；
-3. 最终整体代码审查（dispatch final reviewer）→ `finishing-a-development-branch`（合并/保留分支决策）。
+1. Task 8 旧数据清理（dry-run 默认）+ 全量回归；
+2. 最终整体代码审查（dispatch final reviewer）→ `finishing-a-development-branch`（合并/保留分支决策）。
+
+**Task 7 质量审查积压项（低成本，随计划 2/3 顺带处理）：**
+- 补 4 个建议测试：种子 params 键 ⊆ PARAM_DEFS / 二次运行不动 28·24·133 / demo 特征⊆FEATURE_FIELDS 且 due_date 为 date / 路线 code ⊆ 工艺 code；
+- 参数值形态 `"1.0"`（种子）vs `"1"`（默认）未钉住——计划 2 规定"参数一律数值解析"或后续规范化；
+- 转换脚本产物可补溯源字段（源路径+sha256+生成日期）与去掉无用 sys.path（观感项）；
+- `load_seed.py` 演示单跳过原因可打印（可观测性）。
 
 **计划 2 开工前建议动作（评审提出）：**
 - 模型-迁移漂移自动守卫：scoped `compare_metadata` / `alembic check` 固化为 pytest 或 CI 步骤（对 `TEST_PG_URL` 测试库）；
