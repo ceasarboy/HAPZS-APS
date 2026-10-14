@@ -1,0 +1,417 @@
+[
+ {
+  "order_no": "WO-000",
+  "product": "模块-01",
+  "code": "M01-2DS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 200,
+  "due_date": "2026-10-17",
+  "kit_date": "2026-10-12",
+  "priority": 200,
+  "features": {
+   "N_smt": 20,
+   "N_die": 30,
+   "Y_die": 2,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-001",
+  "product": "模块-02",
+  "code": "M04-CP",
+  "order_type": "加急",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 5,
+  "due_date": "2026-10-10",
+  "kit_date": "2026-10-05",
+  "priority": 100,
+  "features": {
+   "N_die": 40,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-002",
+  "product": "模块-03",
+  "code": "M08-3DS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 100,
+  "due_date": "2026-10-12",
+  "kit_date": "2026-10-07",
+  "priority": 200,
+  "features": {
+   "N_smt": 2,
+   "N_die": 28,
+   "Y_die": 1,
+   "N_wire": 80,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-003",
+  "product": "模块-04",
+  "code": "M10-POP",
+  "order_type": "加急",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 20,
+  "due_date": "2026-10-11",
+  "kit_date": "2026-10-06",
+  "priority": 100,
+  "features": {
+   "N_smt": 20,
+   "N_die": 50,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 2,
+   "N_die2": 30,
+   "Y_die2": 1,
+   "N_wire2": 80,
+   "Y_wire2": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-004",
+  "product": "模块-05",
+  "code": "M11-P2P",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 50,
+  "due_date": "2026-10-14",
+  "kit_date": "2026-10-09",
+  "priority": 200,
+  "features": {
+   "N_die": 40,
+   "Y_die": 1,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-005",
+  "product": "模块-06",
+  "code": "M01-2DS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 100,
+  "due_date": "2026-10-15",
+  "kit_date": "2026-10-10",
+  "priority": 200,
+  "features": {
+   "N_smt": 10,
+   "N_die": 20,
+   "Y_die": 2,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-006",
+  "product": "模块-07",
+  "code": "M01-2DS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 15,
+  "due_date": "2026-10-16",
+  "kit_date": "2026-10-11",
+  "priority": 200,
+  "features": {
+   "N_smt": 20,
+   "N_die": 30,
+   "Y_die": 1,
+   "N_wire": 120,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-007",
+  "product": "模块-08",
+  "code": "M01-2DS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 300,
+  "due_date": "2026-10-17",
+  "kit_date": "2026-10-12",
+  "priority": 200,
+  "features": {
+   "N_smt": 30,
+   "N_die": 28,
+   "Y_die": 2,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-008",
+  "product": "模块-09",
+  "code": "M02-2D",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 500,
+  "due_date": "2026-10-14",
+  "kit_date": "2026-10-09",
+  "priority": 200,
+  "features": {
+   "N_die": 40,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-009",
+  "product": "模块-10",
+  "code": "M02-2D",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 40,
+  "due_date": "2026-10-14",
+  "kit_date": "2026-10-09",
+  "priority": 200,
+  "features": {
+   "N_die": 40,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-010",
+  "product": "模块-11",
+  "code": "M02-2D",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 100,
+  "due_date": "2026-10-15",
+  "kit_date": "2026-10-10",
+  "priority": 200,
+  "features": {
+   "N_die": 40,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-011",
+  "product": "模块-12",
+  "code": "M03-CPS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 200,
+  "due_date": "2026-10-16",
+  "kit_date": "2026-10-11",
+  "priority": 200,
+  "features": {
+   "N_smt": 10,
+   "N_die": 20,
+   "Y_die": 2,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-012",
+  "product": "模块-13",
+  "code": "M03-CPS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 100,
+  "due_date": "2026-10-11",
+  "kit_date": "2026-10-06",
+  "priority": 200,
+  "features": {
+   "N_smt": 10,
+   "N_die": 20,
+   "Y_die": 2,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-013",
+  "product": "模块-14",
+  "code": "M03-CPS",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 18,
+  "due_date": "2026-10-13",
+  "kit_date": "2026-10-08",
+  "priority": 200,
+  "features": {
+   "N_smt": 10,
+   "N_die": 20,
+   "Y_die": 2,
+   "N_wire": 100,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-014",
+  "product": "模块-15",
+  "code": "M09-3DD",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "无",
+  "qty": 100,
+  "due_date": "2026-10-14",
+  "kit_date": "2026-10-09",
+  "priority": 200,
+  "features": {
+   "N_smt": 2,
+   "N_die": 28,
+   "Y_die": 1,
+   "N_wire": 80,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-015",
+  "product": "模块-16",
+  "code": "M09-3DD",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 100,
+  "due_date": "2026-10-15",
+  "kit_date": "2026-10-10",
+  "priority": 200,
+  "features": {
+   "N_smt": 2,
+   "N_die": 28,
+   "Y_die": 1,
+   "N_wire": 80,
+   "Y_wire": 2
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-016",
+  "product": "模块-17",
+  "code": "M10-POP",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 16,
+  "due_date": "2026-10-16",
+  "kit_date": "2026-10-11",
+  "priority": 200,
+  "features": {
+   "N_smt": 10,
+   "N_die": 40,
+   "Y_die": 2,
+   "N_wire": 180,
+   "Y_wire": 2,
+   "N_die2": 30,
+   "Y_die2": 1,
+   "N_wire2": 80,
+   "Y_wire2": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-017",
+  "product": "模块-18",
+  "code": "M10-POP",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 18,
+  "due_date": "2026-10-17",
+  "kit_date": "2026-10-12",
+  "priority": 200,
+  "features": {
+   "N_smt": 15,
+   "N_die": 50,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 2,
+   "N_die2": 30,
+   "Y_die2": 1,
+   "N_wire2": 80,
+   "Y_wire2": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-018",
+  "product": "模块-19",
+  "code": "M10-POP",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 100,
+  "due_date": "2026-10-15",
+  "kit_date": "2026-10-10",
+  "priority": 200,
+  "features": {
+   "N_smt": 20,
+   "N_die": 50,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 2,
+   "N_die2": 30,
+   "Y_die2": 1,
+   "N_wire2": 80,
+   "Y_wire2": 1
+  },
+  "remark": ""
+ },
+ {
+  "order_no": "WO-019",
+  "product": "模块-20",
+  "code": "M10-POP",
+  "order_type": "常规",
+  "first_flag": "否",
+  "water_vapor": "有",
+  "qty": 100,
+  "due_date": "2026-10-15",
+  "kit_date": "2026-10-10",
+  "priority": 200,
+  "features": {
+   "N_smt": 20,
+   "N_die": 50,
+   "Y_die": 2,
+   "N_wire": 200,
+   "Y_wire": 2,
+   "N_die2": 30,
+   "Y_die2": 1,
+   "N_wire2": 80,
+   "Y_wire2": 1
+  },
+  "remark": ""
+ }
+]
