@@ -1786,7 +1786,7 @@ git commit -m "feat(seed): MPS 种子转换、加载器与导入脚本"
 from sqlalchemy import func, select
 
 from app.models.mps import Order
-from app.mps.maintenance import clean_tables
+from app.mps.maintenance import OLD_BUSINESS_TABLES, clean_tables
 
 
 async def test_clean_dry_run_keeps_rows(sqlite_session):
@@ -1803,6 +1803,35 @@ async def test_clean_execute_deletes_rows(sqlite_session):
     counts = await clean_tables(sqlite_session, tables=["orders"], execute=True)
     assert counts == {"orders": 1}
     assert (await sqlite_session.execute(select(func.count()).select_from(Order))).scalar() == 0
+
+
+async def test_empty_tables_argument_deletes_nothing(sqlite_session):
+    sqlite_session.add(Order(order_no="C-3", product="P", code="M02-2D", qty=1))
+    await sqlite_session.commit()
+    counts = await clean_tables(sqlite_session, tables=[], execute=True)
+    assert counts == {}
+    assert (await sqlite_session.execute(select(func.count()).select_from(Order))).scalar() == 1
+
+
+def test_old_business_tables_order_respects_fk():
+    """删除顺序：任一表的 FK 父表都不得排在该表之前（子表在前，父表在后）。"""
+    from app.database import Base
+    import app.models  # noqa: F401
+
+    order = {name: i for i, name in enumerate(OLD_BUSINESS_TABLES)}
+    for name in OLD_BUSINESS_TABLES:
+        table = Base.metadata.tables[name]
+        for fk in table.foreign_keys:
+            parent = fk.column.table.name
+            if parent in order:
+                assert order[parent] > order[name], f"{name} 依赖 {parent}，父表必须排在后面"
+
+
+def test_old_business_tables_all_registered():
+    from app.database import Base
+    import app.models  # noqa: F401
+
+    assert set(OLD_BUSINESS_TABLES).issubset(Base.metadata.tables.keys())
 ```
 
 - [ ] **Step 8.2: 运行确认失败**
@@ -1819,18 +1848,18 @@ Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps.maintenance
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# 按外键依赖顺序（子表在前）
+# 按外键依赖顺序（子表在前，父表在后）
 OLD_BUSINESS_TABLES = [
     "report_work_orders",
     "schedule_results",
     "process_delivery_plans",
     "process_schedule_orders",
-    "demand_plans",
     "material_kittings",
+    "demand_plans",
     "process_boms",
     "product_processes",
-    "line_process_configs",
     "changeover_matrices",
+    "line_process_configs",
     "buffer_configs",
     "resource_calendars",
     "material_masters",
@@ -1846,12 +1875,16 @@ async def clean_tables(
 ) -> dict[str, int]:
     """统计（并可选删除）指定表的数据行数。
 
+    注意：破坏性工具——execute=True 时删除表中全部数据；
+    tables 可传 metadata 中任意表名，调用方自行保证表名可信
+    （生产入口 CLI 固定使用 OLD_BUSINESS_TABLES，不暴露表名参数）。
+
     Args:
         session: 数据库会话
-        tables: 表名列表，默认 OLD_BUSINESS_TABLES
+        tables: 表名列表；None=OLD_BUSINESS_TABLES；[]=不做任何事
         execute: False=仅统计（dry-run）；True=执行删除
     """
-    tables = tables or OLD_BUSINESS_TABLES
+    tables = tables if tables is not None else OLD_BUSINESS_TABLES
     counts: dict[str, int] = {}
     for name in tables:
         table = _table(name)
@@ -1878,6 +1911,8 @@ def _table(name: str):
 ```python
 """清理旧业务数据（保留表结构；默认 dry-run）。
 
+前置提示：建议先备份（pg_dump），再 dry-run 复核计数，然后停服执行 --execute。
+
 用法（在 backend 目录）：
   python tools/clean_old_business_data.py            # 预览各表行数
   python tools/clean_old_business_data.py --execute  # 执行删除
@@ -1889,19 +1924,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sqlalchemy.engine import make_url
+
+from app.core.config import settings
 from app.database import async_session
 from app.mps.maintenance import clean_tables
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="清理旧业务数据（保留表结构，默认 dry-run）")
     parser.add_argument("--execute", action="store_true", help="执行删除（默认仅统计）")
     args = parser.parse_args()
+    db_display = make_url(settings.DATABASE_URL).render_as_string(hide_password=True)
+    print(f"目标数据库: {db_display}")
+    print(f"模式: {'执行删除' if args.execute else '预览（未删除）'}")
     async with async_session() as session:
         counts = await clean_tables(session, execute=args.execute)
-    mode = "已删除" if args.execute else "预览（未删除）"
     for name, count in counts.items():
-        print(f"{mode}: {name} = {count}")
+        print(f"  {name} = {count}")
     print("合计:", sum(counts.values()))
 
 
