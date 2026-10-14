@@ -11,11 +11,11 @@ from app.core.config import settings
 
 def is_sqlite(url: str) -> bool:
     """判断是否为 SQLite 数据库地址（本地单机模式）。"""
-    return url.startswith("sqlite")
+    return make_url(url).drivername.lower().startswith("sqlite")
 
 
 def engine_kwargs(url: str) -> dict:
-    """根据数据库类型返回引擎参数（SQLite 不支持连接池参数）。"""
+    """根据数据库类型返回引擎参数（SQLite 使用轻量连接参数，PostgreSQL 使用连接池参数）。"""
     if is_sqlite(url):
         return {"connect_args": {"check_same_thread": False}}
     return {"pool_size": 5, "max_overflow": 10, "pool_pre_ping": True}
@@ -55,6 +55,8 @@ async def init_schema(target_engine=None, url: str | None = None) -> None:
     url = url or settings.DATABASE_URL
     if not is_sqlite(url):
         return
+    if target_engine is None and url != settings.DATABASE_URL:
+        raise ValueError("init_schema: 传入 url 时必须同时传入 target_engine，避免误操作全局引擎")
     import app.models  # noqa: F401  确保全部模型注册到 Base.metadata
 
     _ensure_sqlite_dir(url)

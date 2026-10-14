@@ -460,7 +460,8 @@ EXPECTED_TABLES = {
 
 
 async def test_mps_tables_created(sqlite_engine):
-    names = await sqlite_engine.run_sync(lambda conn: inspect(conn).get_table_names())
+    async with sqlite_engine.connect() as conn:
+        names = await conn.run_sync(lambda c: inspect(c).get_table_names())
     assert EXPECTED_TABLES.issubset(set(names))
 
 
