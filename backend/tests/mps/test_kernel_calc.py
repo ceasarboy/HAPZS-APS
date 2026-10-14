@@ -105,13 +105,13 @@ def test_chk_delivery_004_005_buffer_variants():
     assert r1["delivery"]["days"] == 16 and r0["delivery"]["days"] == 17
 
 
-def test_chk_yield_005_output_check_iterate():
-    # 构造 yRatio 使 ⌈qty×ratio⌉ 恰好产出不足，需要迭代 +1
+def test_chk_yield_005_output_check():
+    # Q=⌈qty×ratio⌉ 数学上恒满足 Q×Y≥qty，while 循环为浮点尾差防御（构造上不可达）；
+    # 本测试钉住产出校核字段语义。
     ctx = _ctx_m02_2d()
-    # 用 qty=1 且 yRatio<1 触发迭代：1×ratio≈1.052→Q=2，2×0.9507=1.90≥1 OK；
     r = calc_order(_order(qty=1, features={"N_die": 60, "N_wire": 60}), ctx)
-    assert r["output_check"]["ok"] is True
-    assert r["output_check"]["expected"] >= 1
+    assert r["input_qty"] == 2          # ⌈1×1.052⌉
+    assert r["output_check"] == {"expected": 1, "needed": 1, "ok": True}
 
 
 def test_chk_delivery_003_round_mode_variants():
@@ -128,3 +128,66 @@ def test_chk_cycle_009_ramp_trigger_variants():
     ctx["params"]["ramp_trigger"] = "all"
     r = calc_order(_order(first_flag="否"), ctx)
     assert r["ramp"]["used"] == 1     # 全部订单都触发爬坡
+
+
+def test_gantt_bars_m02_2d():
+    r = calc_order(_order(), _ctx_m02_2d())
+    bars = r["gantt"]["bars"]
+    assert r["gantt"]["lead_days"] == r["cycle"]["used"] == 6
+    assert r["gantt"]["batch_days"] == r["batch"]["batch_cycle"] == 16
+    assert len(bars) == 5
+    assert [b["earliest_start"] for b in bars] == [0, 1, 2, 3, 4]
+    assert [b["latest_finish"] for b in bars] == [11, 12, 13, 14, 16]
+    assert [b["window_days"] for b in bars] == [11, 11, 11, 11, 12]
+    assert [b["busy_days"] for b in bars] == [11, 6, 1, 1, 1]
+    assert [b["float_days"] for b in bars] == [0, 5, 10, 10, 11]
+    assert bars[0]["is_bottleneck"] is True
+
+
+def test_gantt_subpart_bar():
+    ctx = _ctx_m02_2d()
+    ctx["proc_map"]["M02-2D"]["subpart_mode"] = "前置"
+    ctx["proc_map"]["M02-2D"]["subpart_cycle"] = 2
+    r = calc_order(_order(), ctx)
+    assert r["cycle"]["subpart_included"] == 2
+    assert r["cycle"]["base"] == 8              # 6+2
+    bars = r["gantt"]["bars"]
+    assert bars[0]["kind"] == "subpart" and bars[0]["window_days"] == 2
+    assert bars[1]["earliest_start"] == 2
+    assert r["gantt"]["lead_days"] == 8
+
+
+def test_warnings_happy_missing_and_no_wc():
+    r = calc_order(_order(), _ctx_m02_2d())
+    assert r["warnings"] == []
+
+    r2 = calc_order(_order(features={}), _ctx_m02_2d())
+    assert r2["warnings"][0]["level"] == "error"
+    assert "缺少 BOM 特征参数" in r2["warnings"][0]["text"]
+
+    ctx = _ctx_m02_2d()
+    del ctx["wc_map"]["模块级|DB"]
+    r3 = calc_order(_order(), ctx)
+    assert any(w["level"] == "warn" and "工序主数据缺失" in w["text"] for w in r3["warnings"])
+
+
+def test_urgent_used_in_batch_and_delivery():
+    r = calc_order(_order(order_type="加急"), _ctx_m02_2d())
+    assert r["cycle"]["used"] == 4
+    assert r["batch"]["batch_cycle"] == 14      # 4 + ⌈9.52⌉
+    assert r["delivery"]["days"] == 15          # 14 + 0 + 1
+
+
+def test_due_none_and_unknown_code():
+    r = calc_order(_order(due_date=None), _ctx_m02_2d())
+    assert r["delivery"]["latest_start_date"] is None
+    with pytest.raises(ValueError):
+        calc_order(_order(code="X-NOPE"), _ctx_m02_2d())
+
+
+def test_chk_cycle_009b_first_only_trigger():
+    ctx = _ctx_m02_2d()
+    ctx["params"]["ramp_trigger"] = "first_only"
+    assert calc_order(_order(first_flag="首单"), ctx)["ramp"]["used"] == 1
+    assert calc_order(_order(first_flag="复线"), ctx)["ramp"]["used"] == 0
+    assert calc_order(_order(first_flag="变更首件"), ctx)["ramp"]["used"] == 0

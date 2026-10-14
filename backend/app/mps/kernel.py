@@ -11,6 +11,12 @@
 1) nz(" ")：JS Number(" ")=0；本实现 float(" ") 失败 → 返回默认值；
 2) feature_usage 遇非数值串：JS 得 usage=NaN/missing=false；本实现返回 missing=True（更安全的收紧）；
 3) pick_mode 的 qty 须为数值（JS 隐式转换，Python 会 TypeError）——调用方先 nz。
+
+相对 engine.js 的字段裁剪（计划 3/5 需要时按需补回）：
+- 未移植 features 的 JSON 字符串解析（本系统模型即 JSON dict）；
+- 未移植 steps[].id / flux_mean / flux_peak_data（balance.js 有意延后）；
+- 未移植 order 的优先级透传字段（计划 3 排产前确认接口是否需要）；
+- 扩展字段：delivery.buffer_days / delivery.latest_start_date 为本系统新增。
 """
 from __future__ import annotations
 
@@ -203,6 +209,7 @@ def calc_order(order: dict, ctx: dict) -> dict:
         picked = pick_mode(wc, qty)
         if picked:
             base = nz(picked["mode"].get("flux_peak"), 0) if use_peak else nz(picked["mode"].get("flux_base"), 0)
+            # [扩展] 疑点①双档：覆盖同时替换 mean/peak 取值（config 里 wb_auto_flux_override>0 时生效）
             if (wb_override > 0 and s.get("level") == "模块级" and s.get("step_std") == "WB"
                     and picked["mode_name"] == "自动WB"):
                 base = wb_override
@@ -242,7 +249,12 @@ def calc_order(order: dict, ctx: dict) -> dict:
     # 7. 爬坡 / 交付周期（CHK-CYCLE-006/007/009、CHK-DELIVERY-004/005/006）
     first_flag = str(order.get("first_flag") or "否")
     triggered = first_flag in ("首单", "复线", "变更首件")
-    applied = ramp_trigger == "all" or triggered
+    if ramp_trigger == "all":
+        applied = True
+    elif ramp_trigger == "first_only":          # 疑点④取值B（CHK-CYCLE-009B）
+        applied = first_flag == "首单"
+    else:                                       # "first_flag" 默认（疑点④取值A，CHK-CYCLE-009A）
+        applied = triggered
     ramp_used = nz(proc.get("ramp_days"), 0) if applied else 0
     delivery_cycle = batch_cycle + ramp_used + buffer_days
 
@@ -321,7 +333,7 @@ def build_gantt(item: list[dict], t_used: float, batch: float, proc: dict, q: fl
 
 
 def build_warnings(item: list[dict]) -> list[dict]:
-    """缺 BOM 特征 / 工序主数据缺失 提示（CHK-FLUX-018）。"""
+    """缺 BOM 特征 / 工序主数据缺失 提示（CHK-FLUX-014 / CHK-LOAD-010）。"""
     w = []
     missing = [s for s in item if s["missing"]]
     if missing:

@@ -53,5 +53,5 @@ PARAM_DEFS: list[dict] = [
     {"key": "reference_batch", "value": "1000", "label": "参考批量（只）", "group": "分流", "hint": "基准通量的分流判定批量；周负荷按订单实际批量动态分流"},
     {"key": "wb_auto_flux_override", "value": "0", "label": "模块级自动WB通量覆盖", "group": "分流", "hint": "根丝/天；0=使用主数据通量；疑点①：逻辑书12000 vs 主数据口径20000，双档测试用 12000/20000"},
     {"key": "round_mode", "value": "ceil", "label": "批量项取整口径", "group": "交付", "hint": "ceil=向上取整（V1.6算例与mps-web口径，M02-2D批量周期16）；exact=不取整（Excel计算器口径15.52）；疑点待业务确认"},
-    {"key": "ramp_trigger", "value": "first_flag", "label": "爬坡触发口径", "group": "爬坡", "hint": "first_flag=首单/复线/变更首件触发 / all=所有订单；疑点待业务确认"},
+    {"key": "ramp_trigger", "value": "first_flag", "label": "爬坡触发口径", "group": "爬坡", "hint": "first_flag=首单/复线/变更首件触发 / first_only=仅首单 / all=所有订单；疑点④双档：A=first_flag、B=first_only，待业务确认"},
 ]
