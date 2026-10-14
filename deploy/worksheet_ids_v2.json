@@ -1,0 +1,18 @@
+{
+  "product": "6a2bf816c839766934ee62e8",
+  "changeover_matrix": "6a2bf82eb650d46f3d1a4f70",
+  "buffer_config": "6a2d46fe9e6cd05a84c0ce55",
+  "schedule_plan": "6a2d477a3005b538f6a15913",
+  "process_info": "6a2ded6888359ed358a4facd",
+  "production_line": "6a2ded6b9702ee83243c2e1a",
+  "product_process": "6a2ded6d3005b538f6a54ef1",
+  "line_process_config": "6a2ded6f7a04850bc8397ba6",
+  "material_master": "6a2ded70b650d46f3d27acf1",
+  "process_bom": "6a2ded70d541405963b3b308",
+  "material_kitting": "6a2ded72ee5a696a850ad8b0",
+  "demand_plan": "6a2ded7488359ed358a4faf4",
+  "schedule_result": "6a2ded74be69b5a61480b3ac",
+  "resource_calendar": "6a2ded756856d88fae530516",
+  "process_schedule_order": "6a58dec5b04c56179567347b",
+  "report_work_order": "6a5a2c9d4c4bdc3b0afb3903"
+}

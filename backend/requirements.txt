@@ -1,0 +1,17 @@
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+gunicorn==23.0.0
+pydantic==2.13.3
+pydantic-settings==2.14.1
+httpx==0.28.1
+celery==5.5.3
+redis==7.3.0
+sqlalchemy==2.0.46
+alembic==1.18.4
+psycopg2-binary==2.9.11
+pandas==2.3.3
+numpy==2.4.5
+ortools==9.15.6755
+loguru==0.7.3
+python-dotenv==1.2.2
+asyncpg==0.31.0

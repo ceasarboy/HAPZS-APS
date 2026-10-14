@@ -1,0 +1,54 @@
+__pycache__/
+*.pyc
+.env
+.env.local
+.env.production
+!.env.example
+node_modules/
+dist/
+*.egg-info/
+.pytest_cache/
+redis_data/
+pg_data/
+.venv/
+*.log
+.DS_Store
+Thumbs.db
+
+# 临时调试/检查/验证脚本
+backend/check_*.py
+backend/debug_*.py
+backend/verify_*.py
+backend/fix_*.py
+backend/test_*.py
+backend/query_*.py
+backend/inspect_*.py
+backend/compare_*.py
+backend/diag_*.py
+backend/hard_delete_*.py
+backend/analyze_*.py
+backend/trigger_*.py
+backend/run_schedule_direct.py
+backend/reset_for_schedule.py
+backend/setup_demands_calendar.py
+backend/manage_hap_pso.py
+backend/migrate_v3_fields.py
+backend/survey_*.py
+backend/clean_*.py
+backend/verify_output.txt
+backend/test_output.txt
+backend/diagnose_state.py
+backend/simulation_test.py
+backend/scripts/
+
+# Trae 工作目录
+.trae/
+
+# 仿真输出
+backend/simulation/output/
+
+# 离线部署包与临时文件
+offline/
+backend/.tmp/
+backend/data/
+
