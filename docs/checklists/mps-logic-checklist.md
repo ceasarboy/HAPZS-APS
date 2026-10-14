@@ -47,7 +47,7 @@
 | CHK-FLUX-008 | WB使用两种以上规格引线时触发折算：引线2种→Y_wire=0.95；3种→0.9；1种→1.0 | V1.6 §五 5.3（Y_wire取值规则）；样本字段「WB/引线类型数」 | 2种→×0.95；3种→×0.9 | tests/mps/test_kernel_flux.py::test_chk_flux_008_wb_coeff_values | 待实现 |
 | CHK-FLUX-009 | 生产模式分流·模块级DB：参考批量＜20只→半自动2000芯片/天；≥20只→自动6000芯片/天 | V1.6 表格4（生产模式分流） | 参考批量1000→自动6000芯片/天 | tests/mps/test_kernel_flux.py::test_chk_flux_009_db_mode_split_module | 待实现 |
 | CHK-FLUX-010 | 生产模式分流·模块级WB：＜20只→半自动4500根丝/天；≥20只→自动档（自动通量取值见CHK-FLUX-015A/015B疑点） | V1.6 表格4（生产模式分流） | 参考批量1000→自动档；同阈值20只与DB一致 | tests/mps/test_kernel_flux.py::test_chk_flux_010_wb_mode_split_module | 待实现 |
-| CHK-FLUX-011 | 生产模式分流·组件级：DB 1600/4000芯片/天、WB 4000/10000根丝/天（半自动/自动）；阈值＜10只→半自动，≥10只→自动 | V1.6 表格4；§八⑤ | 批量18只→半自动；批量100只→自动 | tests/mps/test_kernel_flux.py::test_chk_flux_011_mode_split_component | 待实现 |
+| CHK-FLUX-011 | 生产模式分流·组件级：DB 1600/4000芯片/天、WB 4000/10000根丝/天（半自动/自动）；阈值＜10只→半自动，≥10只→自动 | V1.6 表格4；§八⑤ | 批量8只→半自动；批量18只→自动 | tests/mps/test_kernel_flux.py::test_chk_flux_011_mode_split_component | 待实现 |
 | CHK-FLUX-012 | 参考批量=1000只（MPS计算逻辑参数表D列，默认），用于基准通量模式判定；周计划负荷按订单实际批量动态分流 | V1.6 §五 5.2；表格5（参考批量维护位置） | 基准档按1000判定；周负荷按各订单实际批量各自分流 | tests/mps/test_kernel_flux.py::test_chk_flux_012_ref_batch_1000 | 待实现 |
 | CHK-FLUX-013 | 产品基准通量=MIN（路线各工序产品级均值通量）；瓶颈=取小工序，底表G列自动标出瓶颈工序 | V1.6 §五 5.4（E/F列MINIFS取小、G列瓶颈工序） | M02-2D：DB 100<WB 200→瓶颈=DB | tests/mps/test_kernel_flux.py::test_chk_flux_013_bottleneck_min | 待实现 |
 | CHK-FLUX-014 | 缺BOM特征参数时，仅"只产品N"类工序参与取小，H列提示"缺BOM特征参数" | V1.6 §五 5.4；§八④ | 未录特征时取小结果仅含只产品类工序并输出缺参提示 | tests/mps/test_kernel_flux.py::test_chk_flux_014_missing_feature_excluded | 待实现 |
@@ -56,10 +56,10 @@
 | CHK-DELIVERY-001 | 批量总装配周期=T单件+批量项（投料量口径） | V1.6 §三（批量总装配周期）；表6 | M02-2D：6+10=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_001_batch_cycle_sum | 待实现 |
 | CHK-DELIVERY-002 | 批量项=(投料量−瓶颈通量)÷瓶颈通量；计算为负时取0 | V1.7 逻辑⑩ 原文（批量项负值取0） | 投料量≤瓶颈通量→批量项=0 | tests/mps/test_kernel_delivery.py::test_chk_delivery_002_batch_term_formula | 待实现 |
 | CHK-DELIVERY-003A | 疑点·批量项取整取值A：向上取整⌈⌉（V1.6 算例口径）→6+⌈9.52⌉=16天 | V1.6 §九 表6（⌈(1052−100)/100⌉） | M02-2D 批量周期=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003a_batch_term_ceil | 阻塞(疑点) |
-| CHK-DELIVERY-003B | 疑点·批量项取整取值B：不取整（Excel口径）→6+9.52=15.52天 | 疑点登记（Excel不取整口径） | M02-2D 批量周期=15.52天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003b_batch_term_no_ceil | 阻塞(疑点) |
+| CHK-DELIVERY-003B | 疑点·批量项取整取值B：不取整（Excel口径）→6+9.52=15.52天 | 设计规格 §11·Excel不取整口径 | M02-2D 批量周期=15.52天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003b_batch_term_no_ceil | 阻塞(疑点) |
 | CHK-DELIVERY-004 | 交付周期=批量总装配周期+爬坡时间（仅首单/复线/变更首件，常规=0）+订单缓冲（默认1天） | V1.6 §六（交付周期公式） | M02-2D常规：16+0+1=17天；首单：16+1+1=18天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_004_delivery_cycle_formula | 待实现 |
 | CHK-DELIVERY-005A | 疑点·订单缓冲取值A：计入默认1天缓冲（V1.6 口径） | V1.6 §六（订单缓冲默认1天） | 交付周期含+1天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_005a_buffer_included | 阻塞(疑点) |
-| CHK-DELIVERY-005B | 疑点·订单缓冲取值B：不计入缓冲（0天） | 疑点登记（缓冲不计入口径） | 交付周期不含缓冲天数 | tests/mps/test_kernel_delivery.py::test_chk_delivery_005b_buffer_excluded | 阻塞(疑点) |
+| CHK-DELIVERY-005B | 疑点·订单缓冲取值B：不计入缓冲（0天） | 设计规格 §11·缓冲不计入口径 | 交付周期不含缓冲天数 | tests/mps/test_kernel_delivery.py::test_chk_delivery_005b_buffer_excluded | 阻塞(疑点) |
 | CHK-DELIVERY-006 | 最晚投料日=要求交期−交付周期 | V1.6 §六；§八② | 交期2026-12-31、交付17天→最晚投料2026-12-14 | tests/mps/test_kernel_delivery.py::test_chk_delivery_006_latest_start_date | 待实现 |
 | CHK-DELIVERY-007 | 最晚投料日晚于本周的排入下周 | V1.6 §八② | 超出本周的订单顺延标记至下周排产 | tests/mps/test_kernel_delivery.py::test_chk_delivery_007_overflow_next_week | 待实现 |
 | CHK-DELIVERY-008 | 加急订单周期压缩口径：T单件取加急值（M02-2D 6→4天），交付周期与最晚投料日按压缩后周期计算 | V1.6 §三、表6；样本字段「订单类型(常规/加急)」 | 加急M02-2D T=4天，交付链相应提前 | tests/mps/test_kernel_delivery.py::test_chk_delivery_008_urgent_compression | 待实现 |
@@ -88,7 +88,7 @@
 | CHK-PRIO-007 | 优先级变更审计日志：priority_log 记录原/新优先级、原/新拖拽序、操作人与时间 | 设计规格 D8；计划1 priority_log 模型 | 每次变更留痕、可追溯 | tests/mps/test_kernel_prio.py::test_chk_prio_007_priority_audit_log | 待实现 |
 | CHK-PRIO-008 | 优先级批量操作快照：priority_batch 支持批量撤销 | 设计规格 D8；计划1 priority_batch 模型 | 批量变更可整体撤销 | tests/mps/test_kernel_prio.py::test_chk_prio_008_batch_undo_snapshot | 待实现 |
 | CHK-PRIO-009 | 排产优先级双向同步：拉取工单携带优先级、推送回写工单表单「排产优先级」 | 设计规格 D8/§7（回写清单） | 同步往返数值一致 | tests/mps/test_kernel_prio.py::test_chk_prio_009_priority_hap_sync | 待实现 |
-| CHK-PRIO-010 | 疑点·优先级与齐套/交期的组合排序语义：优先级、齐套时间、交期三者先后与跨齐套排序规则在 MPS 逻辑书与设计规格中均未定义 | 疑点登记（逻辑书未定义） | 待业务确认排产排序函数；先按参数双档实现 | tests/mps/test_kernel_prio.py::test_chk_prio_010_priority_kitting_semantics | 阻塞(疑点) |
+| CHK-PRIO-010 | 疑点·优先级与齐套/交期的组合排序语义：优先级、齐套时间、交期三者先后与跨齐套排序规则在 MPS 逻辑书与设计规格中均未定义 | 设计规格 §11·逻辑书未定义 | 待业务确认排产排序函数；先按参数双档实现 | tests/mps/test_kernel_prio.py::test_chk_prio_010_priority_kitting_semantics | 阻塞(疑点) |
 | CHK-SCHED-001 | 工序串行：同一工单工序级需求按「依赖前道ID」顺序执行，前道未完成不排后道 | 设计规格 §3（工序串行）/§4 order_operation | 解码结果满足串行依赖、无跨序开工 | tests/mps/test_kernel_sched.py::test_chk_sched_001_operation_serial_dependency | 待实现 |
 | CHK-SCHED-002 | 按日产能账本分配：每日分配数量不超过资源（级别\|工序\|模式）日产能 | 设计规格 §3（解码执行层） | 任意资源任一日累计分配≤日产能 | tests/mps/test_kernel_sched.py::test_chk_sched_002_daily_capacity_ledger | 待实现 |
 | CHK-SCHED-003 | 解码分流按订单实际批量动态判定（DB/WB 模块级20只/组件级10只阈值），不以参考批量1000判定 | V1.7 逻辑⑦⑪、周计划⑤；V1.6 §5.2 | 实际批量<阈值走半自动、≥阈值走自动 | tests/mps/test_kernel_sched.py::test_chk_sched_003_mode_by_actual_batch | 待实现 |
@@ -104,23 +104,23 @@
 | CHK-SYNC-003 | 双向同步：拉取工单/主数据（按 hap_row_id upsert）；推送排产结果回写工单表单（按 sync_status create/update/delete） | 设计规格 D2/D9/§7 | 拉取幂等；回写字段与映射配置一致 | tests/mps/test_kernel_sync.py::test_chk_sync_003_bidirectional_sync | 待实现 |
 | CHK-SYNC-004 | 同步可关闭纯本地：DISABLE_HAP_SYNC=1 或未配置映射→全功能纯本地可用；触发=手动+定时+排产确认后推送 | 设计规格 §5/D10/§10 验收4 | 关闭同步时系统功能不缺失 | tests/mps/test_kernel_sync.py::test_chk_sync_004_local_only_mode | 待实现 |
 | CHK-SYNC-005 | 字段转换与选项映射：选项映射JSON/关联配置/日期类型转换从映射读取（含备注等文本字段原样映射）；未配置实体=同步禁用并提示 | 设计规格 §6/§7、§4 hap_field_mapping | 选项/关联/日期/文本字段往返一致 | tests/mps/test_kernel_sync.py::test_chk_sync_005_field_option_mapping | 待实现 |
-| CHK-DB-001 | 双库适配：同一套测试在 SQLite 与 PostgreSQL 均通过（PG 测试库需 TEST_PG_URL 且地址含 test，否则跳过） | 设计规格 §5/§10 验收4；计划1 Task2 | 双后端建连/建表/用例同套通过 | backend/tests/mps/test_database_dual.py::test_sqlite_engine_connect | 待实现 |
-| CHK-DB-002 | SQLite 本地自动建表（create_all 零运维）；PostgreSQL 由 Alembic 迁移管理（init_schema 对非 SQLite 不做动作） | 设计规格 §5；计划1 Task2 | SQLite 启动即建表；PG 不走 create_all | backend/tests/mps/test_mps_models.py::test_mps_tables_created | 待实现 |
-| CHK-DB-003 | 种子幂等：三张主数据表清空重插；系统参数只补缺失、不覆盖用户已改值；演示工单仅在 orders 为空时导入一次 | 计划1 Task7（种子加载器） | 重复导入行数稳定、参数保留 | backend/tests/mps/test_seed_loader.py::test_seed_idempotent_and_params_preserved | 待实现 |
-| CHK-DB-004 | 可移植类型与统一出箱字段：不使用 PG 专有类型（Uuid 字符串/JSON/DateTime）；模型统一带 hap_row_id/sync_status/synced_at；JSON 往返与唯一约束成立 | 设计规格 §4/§5；计划1 Task2/3 | 双库类型等价、出箱字段齐备 | backend/tests/mps/test_mps_models.py::test_order_features_json_roundtrip | 待实现 |
+| CHK-DB-001 | 双库适配：同一套测试在 SQLite 与 PostgreSQL 均通过（PG 测试库需 TEST_PG_URL 且地址含 test，否则跳过） | 设计规格 §5/§10 验收4；计划1 Task2 | 双后端建连/建表/用例同套通过 | tests/mps/test_database_dual.py::test_sqlite_engine_connect、test_pg_engine_connect | 待实现 |
+| CHK-DB-002 | SQLite 本地自动建表（create_all 零运维）；PostgreSQL 由 Alembic 迁移管理（init_schema 对非 SQLite 不做动作） | 设计规格 §5；计划1 Task2 | SQLite 启动即建表；PG 不走 create_all | tests/mps/test_mps_models.py::test_mps_tables_created | 待实现 |
+| CHK-DB-003 | 种子幂等：三张主数据表清空重插；系统参数只补缺失、不覆盖用户已改值；演示工单仅在 orders 为空时导入一次 | 计划1 Task7（种子加载器） | 重复导入行数稳定、参数保留 | tests/mps/test_seed_loader.py::test_seed_idempotent_and_params_preserved | 待实现 |
+| CHK-DB-004 | 可移植类型与统一出箱字段：不使用 PG 专有类型（Uuid 字符串/JSON/DateTime）；模型统一带 hap_row_id/sync_status/synced_at；JSON 往返与唯一约束成立 | 设计规格 §4/§5；计划1 Task2/3 | 双库类型等价、出箱字段齐备 | tests/mps/test_mps_models.py::test_order_features_json_roundtrip | 待实现 |
 | CHK-UI-001 | 六视图职责：①工单管理（订单号/产品型号/工艺代号等24列内联编辑、Excel导入/模板/导出、优先级引擎UI、实时草算）②排产结果（求解模式/策略/异步进度/KPI/瓶颈卡/内联改交期齐套）③工序产能负荷（周负荷表图+每日产能折线 cap/85%/100%）④甘特图（订单级/工序级、瓶颈红条、齐套标记、分部件平行条）⑤日任务看板（日期/工序/级别/模式筛选）⑥基础数据（工序/工艺/路线/系统参数） | 设计规格 §8/§3 | 六视图关键路径走查通过 | tests/mps/test_kernel_ui.py::test_chk_ui_001_six_views | 待实现 |
 | CHK-UI-002 | 旧计划类页面替换：旧 Schedule/ScheduleResult/DataManager 由新页面替代，旧数据可删（清理脚本） | 设计规格 §1/§8/D1；计划1 Task8 | 旧页面不可达、旧数据清理可执行 | tests/mps/test_kernel_ui.py::test_chk_ui_002_legacy_pages_replaced | 待实现 |
 | CHK-UI-003 | 执行类页面冻结保留：报工/工序进度/工时保留入口并标注"待二期适配"，不接入新模型 | 设计规格 D1/§1/§8 | 页面可访问、标注冻结 | tests/mps/test_kernel_ui.py::test_chk_ui_003_execution_pages_frozen | 待实现 |
 | CHK-UI-004 | 明道云映射设置页（第⑦页）：菜单整合挂载、沿用现有 API Key 鉴权 | 设计规格 D7/§6/§8 | 设置页入口可用、鉴权生效 | tests/mps/test_kernel_ui.py::test_chk_ui_004_mapping_page_entry | 待实现 |
-| CHK-COL-001 | V1.7 列解读·主键与版本：工艺代号+版本号（V1.0/V1.1）；编码=级码(D/M/C)+两位流水+特征码，代号发布后含义不变、变更仅递增版本；MPS/物料/工时以代号关联 | V1.7 §三（编码规则）、清单产品形态~版本列 | 以代号取数、版本独立维护 | tests/mps/test_kernel_cols.py::test_chk_col_001_code_version_key | 待实现 |
-| CHK-COL-002 | V1.7 列解读·成品率/放量比列：成套工艺成品率=Π综合成品率、装配放量比=1/Y（C系列按剔钎焊口径） | V1.7 §四④⑤、清单成品率/放量比列 | 两列可复算、C系列口径一致 | tests/mps/test_kernel_cols.py::test_chk_col_002_yield_ratio_columns | 待实现 |
-| CHK-COL-003 | V1.7 列解读·周期三列：单件装配周期（含前置分部件）、加急单件周期=MAX(T−ΔT,1)、分部件装配周期（M09=4/M10=1/M11=6 平行；C02/C05/C07/C08 PCBA=1天前置） | V1.7 §四①②③、清单K/L/M列 | 三列取值与分部件规则一致 | tests/mps/test_kernel_cols.py::test_chk_col_003_cycle_k_l_m | 待实现 |
-| CHK-COL-004 | V1.7 列解读·BOM特征列组：N_b/N_fc/N_bs/N_smt/N_die/DB胶水类型/N_wire/WB引线类型/N_a（清单中部9列；工单样本另含第2组列） | V1.7 清单特征列组；样本24列 | 特征列与底表N_x/折算系数一一对应 | tests/mps/test_kernel_cols.py::test_chk_col_004_feature_columns | 待实现 |
-| CHK-COL-005 | V1.7 列解读·爬坡与事件列：生产爬坡时间列（参数表按工艺代号：D/M=1天、C=2天、C11-PCB=1天）、是否首单/复线/变更首件列、有无水汽含量要求列 | V1.7 清单列+参数表（逻辑⑦） | 三列驱动爬坡与封盖周期变体 | tests/mps/test_kernel_cols.py::test_chk_col_005_ramp_event_columns | 待实现 |
-| CHK-COL-006 | V1.7 列解读·瓶颈列：瓶颈工序识别 + 瓶颈工序基准均值通量（只/天-折算），来自参数表D~F列与第八部分底表取小 | V1.7 §四⑦、清单瓶颈两列 | 瓶颈工序与通量值可复现 | tests/mps/test_kernel_cols.py::test_chk_col_006_bottleneck_columns | 待实现 |
-| CHK-COL-007 | V1.7 列解读·批量周期四口径列：批量总装配周期-常规/-加急/-常规-无水汽要求/-加急-无水汽要求（无水汽变体=封盖类−1天） | V1.7 清单批量周期四列 | 按订单类型+水汽要求取对应列 | tests/mps/test_kernel_cols.py::test_chk_col_007_batch_cycle_four_variants | 待实现 |
-| CHK-COL-008 | V1.7 周计划列解读·订单区输出列：投料量/采用通量(均值)/瓶颈占用(天)/批量总装配周期(含爬坡)/爬坡(天)/交付周期(天)/最晚投料日；晚于本周排入下周 | V1.7 周计划订单区（逻辑⑨⑩/Step3） | 输出列口径与公式一致 | tests/mps/test_kernel_cols.py::test_chk_col_008_weekly_plan_outputs | 待实现 |
-| CHK-COL-009 | V1.7 周计划列解读·负荷列：按 N_b植球/N_fc倒装/N_die芯片/N_wire根丝/N_smt贴装/N_a电装点/N_bs钎焊部件 7列输出；汇总区按28道工序名匹配算负荷率 | V1.7 周计划负荷列与逻辑⑪ | 负荷列按特征用量计入对应工序 | tests/mps/test_kernel_cols.py::test_chk_col_009_load_columns_28_ops | 待实现 |
+| CHK-COL-001 | V1.7 列解读·主键与版本：工艺代号+版本号（V1.0/V1.1）；编码=级码(D/M/C)+两位流水+特征码，代号发布后含义不变、变更仅递增版本；MPS/物料/工时以代号关联 | V1.7 §三（编码规则）、清单产品形态~版本列 | 以代号取数、版本独立维护 | tests/mps/test_kernel_col.py::test_chk_col_001_code_version_key | 待实现 |
+| CHK-COL-002 | V1.7 列解读·成品率/放量比列：成套工艺成品率=Π综合成品率、装配放量比=1/Y（C系列按剔钎焊口径） | V1.7 §四④⑤、清单成品率/放量比列 | 两列可复算、C系列口径一致 | tests/mps/test_kernel_col.py::test_chk_col_002_yield_ratio_columns | 待实现 |
+| CHK-COL-003 | V1.7 列解读·周期三列：单件装配周期（含前置分部件）、加急单件周期=MAX(T−ΔT,1)、分部件装配周期（M09=4/M10=1/M11=6 平行；C02/C05/C07/C08 PCBA=1天前置） | V1.7 §四①②③、清单K/L/M列 | 三列取值与分部件规则一致 | tests/mps/test_kernel_col.py::test_chk_col_003_cycle_k_l_m | 待实现 |
+| CHK-COL-004 | V1.7 列解读·BOM特征列组：N_b/N_fc/N_bs/N_smt/N_die/DB胶水类型/N_wire/WB引线类型/N_a（清单中部9列；工单样本另含第2组列） | V1.7 清单特征列组；样本24列 | 特征列与底表N_x/折算系数一一对应 | tests/mps/test_kernel_col.py::test_chk_col_004_feature_columns | 待实现 |
+| CHK-COL-005 | V1.7 列解读·爬坡与事件列：生产爬坡时间列（参数表按工艺代号：D/M=1天、C=2天、C11-PCB=1天）、是否首单/复线/变更首件列、有无水汽含量要求列 | V1.7 清单列+参数表（逻辑⑦） | 三列驱动爬坡与封盖周期变体 | tests/mps/test_kernel_col.py::test_chk_col_005_ramp_event_columns | 待实现 |
+| CHK-COL-006 | V1.7 列解读·瓶颈列：瓶颈工序识别 + 瓶颈工序基准均值通量（只/天-折算），来自参数表D~F列与第八部分底表取小 | V1.7 §四⑦、清单瓶颈两列 | 瓶颈工序与通量值可复现 | tests/mps/test_kernel_col.py::test_chk_col_006_bottleneck_columns | 待实现 |
+| CHK-COL-007 | V1.7 列解读·批量周期四口径列：批量总装配周期-常规/-加急/-常规-无水汽要求/-加急-无水汽要求（无水汽变体=封盖类−1天） | V1.7 清单批量周期四列 | 按订单类型+水汽要求取对应列 | tests/mps/test_kernel_col.py::test_chk_col_007_batch_cycle_four_variants | 待实现 |
+| CHK-COL-008 | V1.7 周计划列解读·订单区输出列：投料量/采用通量(均值)/瓶颈占用(天)/批量总装配周期(含爬坡)/爬坡(天)/交付周期(天)/最晚投料日；晚于本周排入下周 | V1.7 周计划订单区（逻辑⑨⑩/Step3） | 输出列口径与公式一致 | tests/mps/test_kernel_col.py::test_chk_col_008_weekly_plan_outputs | 待实现 |
+| CHK-COL-009 | V1.7 周计划列解读·负荷列：按 N_b植球/N_fc倒装/N_die芯片/N_wire根丝/N_smt贴装/N_a电装点/N_bs钎焊部件 7列输出；汇总区按28道工序名匹配算负荷率 | V1.7 周计划负荷列与逻辑⑪ | 负荷列按特征用量计入对应工序 | tests/mps/test_kernel_col.py::test_chk_col_009_load_columns_28_ops | 待实现 |
 
 ## 覆盖自查
 
