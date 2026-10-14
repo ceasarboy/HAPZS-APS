@@ -897,6 +897,9 @@ Expected: 生成 `alembic/versions/<rev>_add_mps_core_tables.py`，其 `down_rev
 Revision ID: <保持自动生成>
 Revises: <保持自动生成>
 Create Date: <保持自动生成>
+
+计划来源: docs/superpowers/plans/2026-10-14-mps-rework-plan1-checklist-data-layer.md Task 4
+本文件为历史冻结资产；模型变更请新增 revision，勿修改本文件。
 """
 import sqlalchemy as sa
 

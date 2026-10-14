@@ -4,6 +4,8 @@ Revision ID: 62ad14d88051
 Revises: b2c3d4e5f6g7
 Create Date: 2026-10-14 15:12:08.941709
 
+计划来源: docs/superpowers/plans/2026-10-14-mps-rework-plan1-checklist-data-layer.md Task 4
+本文件为历史冻结资产；模型变更请新增 revision，勿修改本文件。
 """
 import sqlalchemy as sa
 
