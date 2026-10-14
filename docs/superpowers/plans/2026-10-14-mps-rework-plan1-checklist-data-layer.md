@@ -1630,7 +1630,15 @@ Expected: FAIL —— `ModuleNotFoundError: No module named 'app.seed'`。
 - [ ] **Step 7.4: 创建 `backend/app/seed/loader.py`**
 
 ```python
-"""MPS 种子数据导入器：幂等；系统参数只补缺失、不覆盖用户已改值。"""
+"""MPS 种子数据导入器：幂等；系统参数只补缺失、不覆盖用户已改值。
+
+注意：
+- 重跑会重置三张主数据表（删后重插），含 id/hap_row_id/sync_status 等出箱字段；
+  明道云同步启用后（计划4）重跑会切断同步关联，届时需改为差异化 upsert 或先禁用同步。
+- 修改 PARAM_DEFS 中"已存在键"的默认值对既有库不生效（只补缺失），
+  需配套数据迁移或显式重置手段（计划2开工前定规则）。
+- 本函数会 commit 传入的会话（调用方不必再提交）。
+"""
 import json
 from datetime import date
 from pathlib import Path
@@ -1712,6 +1720,10 @@ async def load_mps_seed(session: AsyncSession, with_demo_orders: bool = False) -
 
 ```python
 """导入 MPS 种子数据。
+
+前置条件：
+- 本地 SQLite 模式：设置 DATABASE_URL=sqlite+aiosqlite:///./data/mps.db（自动建表）。
+- 服务器 PG 模式：先执行 alembic upgrade head（本脚本不会建 PG 表）。
 
 用法（在 backend 目录）：
   python tools/load_seed.py                    # 仅基础数据

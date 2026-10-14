@@ -1,5 +1,9 @@
 """导入 MPS 种子数据。
 
+前置条件：
+- 本地 SQLite 模式：设置 DATABASE_URL=sqlite+aiosqlite:///./data/mps.db（自动建表）。
+- 服务器 PG 模式：先执行 alembic upgrade head（本脚本不会建 PG 表）。
+
 用法（在 backend 目录）：
   python tools/load_seed.py                    # 仅基础数据
   python tools/load_seed.py --with-demo-orders # 附带演示工单（orders 为空时）
