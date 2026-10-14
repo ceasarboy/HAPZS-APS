@@ -191,3 +191,44 @@ def test_chk_cycle_009b_first_only_trigger():
     assert calc_order(_order(first_flag="首单"), ctx)["ramp"]["used"] == 1
     assert calc_order(_order(first_flag="复线"), ctx)["ramp"]["used"] == 0
     assert calc_order(_order(first_flag="变更首件"), ctx)["ramp"]["used"] == 0
+
+
+def test_chk_yield_006_component_braze_excluded():
+    """组件级（C 系列）钎焊良率双档：exclude=1 剔除 / =0 纳入。"""
+    ctx = _ctx_m02_2d()
+    ctx["proc_map"]["C-T"] = {"code": "C-T", "ramp_days": 2, "subpart_mode": None, "subpart_cycle": 0}
+    ctx["route_map"]["C-T"] = [
+        {"code": "C-T", "seq": 1, "step_raw": "钎焊", "step_std": "钎焊", "level": "组件级",
+         "cycle": 1, "yield_overall": 0.96, "feature": "钎焊-部件数N_bs", "cf_field": "/"},
+        {"code": "C-T", "seq": 2, "step_raw": "调试", "step_std": "调试", "level": "组件级",
+         "cycle": 1, "yield_overall": 0.99, "feature": "工单产品数量N", "cf_field": "/"},
+    ]
+    ctx["wc_map"]["组件级|钎焊"] = {"modes": [{"mode": "/", "flux_base": 1000, "flux_peak": 1100, "unit": "只/天"}]}
+    ctx["wc_map"]["组件级|调试"] = {"modes": [{"mode": "/", "flux_base": 1000, "flux_peak": 1100, "unit": "只/天"}]}
+    order = {"order_no": "C1", "product": "组件-1", "code": "C-T", "order_type": "常规", "first_flag": "否",
+             "water_vapor": "有", "qty": 100, "features": {"N_bs": 10}}
+
+    r = calc_order(order, ctx)
+    assert r["ratio"]["exclude_braze"] is True
+    assert r["yield"]["ratio_basis"] == pytest.approx(0.99)      # 钎焊 0.96 被剔除
+
+    ctx["params"]["exclude_braze_yield"] = 0
+    r2 = calc_order(order, ctx)
+    assert r2["yield"]["ratio_basis"] == pytest.approx(0.96 * 0.99)
+
+
+def test_cycle_002_parallel_subpart_excluded():
+    ctx = _ctx_m02_2d()
+    ctx["proc_map"]["M02-2D"]["subpart_mode"] = "平行"
+    ctx["proc_map"]["M02-2D"]["subpart_cycle"] = 4
+    r = calc_order(_order(), ctx)
+    assert r["cycle"]["subpart_included"] == 0
+    assert r["cycle"]["base"] == 6          # 平行分部件不占周期
+
+
+def test_ramp_days_from_proc():
+    ctx = _ctx_m02_2d()
+    ctx["proc_map"]["M02-2D"]["ramp_days"] = 2
+    ctx["params"]["order_buffer_days"] = 0
+    r = calc_order(_order(first_flag="首单"), ctx)
+    assert r["ramp"]["used"] == 2           # 组件级爬坡 2 天同口径（按工艺 ramp_days）
