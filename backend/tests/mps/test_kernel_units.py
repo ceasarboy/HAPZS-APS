@@ -96,6 +96,30 @@ def test_pick_mode_reversed_modes_order():
     assert pick_mode(wc, 20)["mode_name"] == "自动DB"
 
 
+def test_pick_mode_wb_split_module():
+    """CHK-FLUX-010：模块级 WB 阈值 20 只。"""
+    wc = {
+        "modes": [
+            {"mode": "半自动WB", "flux_base": 4500, "split_threshold": 20},
+            {"mode": "自动WB", "flux_base": 12000, "split_threshold": 20},
+        ]
+    }
+    assert pick_mode(wc, 19)["mode_name"] == "半自动WB"
+    assert pick_mode(wc, 20)["mode_name"] == "自动WB"
+
+
+def test_pick_mode_component_split():
+    """CHK-FLUX-011：组件级阈值 10 只。"""
+    wc = {
+        "modes": [
+            {"mode": "半自动DB", "flux_base": 1600, "split_threshold": 10},
+            {"mode": "自动DB", "flux_base": 4000, "split_threshold": 10},
+        ]
+    }
+    assert pick_mode(wc, 8)["mode_name"] == "半自动DB"
+    assert pick_mode(wc, 18)["mode_name"] == "自动DB"
+
+
 def test_conv_factor_wb_second_group_and_default():
     p = {"cf_wb_1": 1, "cf_wb_2": 0.95, "cf_wb_3": 0.9}
     wb2 = {"cf_field": "WB引线类型Y_wire", "feature": "WB-键合线数N_wire-2"}

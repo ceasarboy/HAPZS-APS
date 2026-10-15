@@ -17,6 +17,17 @@ async def test_load_ctx_from_seed(sqlite_session):
     assert ctx["params"]["week_days"] == 6
     assert ctx["params"]["round_mode"] == "ceil"
     assert ctx["params"]["use_peak"] == "mean"
+    assert ctx["params"]["reference_batch"] == 1000
+
+
+async def test_flux_master_data_invariants(sqlite_session):
+    """数据不变量（CHK-FLUX-001/002）：均值通量=单工位产能×工位数；峰值=均值×1.1。"""
+    await load_mps_seed(sqlite_session)
+    rows = (await sqlite_session.execute(select(ProcessMaster))).scalars().all()
+    assert len(rows) == 28
+    for w in rows:
+        assert w.flux_base == pytest.approx(w.stations * w.cap_station), f"{w.level}|{w.op}|{w.mode}"
+        assert w.flux_peak == pytest.approx(w.flux_base * 1.1), f"{w.level}|{w.op}|{w.mode}"
 
 
 async def test_calc_with_seeded_data_matches_official(sqlite_session):

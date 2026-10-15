@@ -63,6 +63,8 @@ def test_chk_calc_001_m02_2d_cycle_flux():
     assert r["bottleneck"]["mode"] == "自动DB"
     assert r["bottleneck"]["throughput"] == pytest.approx(100.0)  # 6000÷60
     assert r["steps"][1]["throughput"] == pytest.approx(200.0)    # WB 12000÷60
+    assert r["steps"][2]["throughput"] == pytest.approx(10000.0)  # 调试=基准通量（只产品N 直接取用）
+    assert r["steps"][4]["throughput"] == pytest.approx(8000.0)   # 封盖=基准通量
 
 
 def test_chk_calc_002_m02_2d_yield_feed_delivery():
@@ -164,6 +166,8 @@ def test_warnings_happy_missing_and_no_wc():
     r2 = calc_order(_order(features={}), _ctx_m02_2d())
     assert r2["warnings"][0]["level"] == "error"
     assert "缺少 BOM 特征参数" in r2["warnings"][0]["text"]
+    assert r2["bottleneck"]["step_std"] == "封盖"         # 缺参工序不参与取小，仅"只产品N"参与
+    assert r2["bottleneck"]["throughput"] == pytest.approx(8000.0)
 
     ctx = _ctx_m02_2d()
     del ctx["wc_map"]["模块级|DB"]
@@ -211,19 +215,22 @@ def test_chk_yield_006_component_braze_excluded():
     r = calc_order(order, ctx)
     assert r["ratio"]["exclude_braze"] is True
     assert r["yield"]["ratio_basis"] == pytest.approx(0.99)      # 钎焊 0.96 被剔除
+    assert r["yield"]["full"] == pytest.approx(0.96 * 0.99)      # 开关只作用于 basis，full 不变
 
     ctx["params"]["exclude_braze_yield"] = 0
     r2 = calc_order(order, ctx)
     assert r2["yield"]["ratio_basis"] == pytest.approx(0.96 * 0.99)
+    assert r2["yield"]["full"] == pytest.approx(0.96 * 0.99)
 
 
-def test_cycle_002_parallel_subpart_excluded():
+def test_chk_cycle_002_parallel_subparts_excluded():
     ctx = _ctx_m02_2d()
     ctx["proc_map"]["M02-2D"]["subpart_mode"] = "平行"
     ctx["proc_map"]["M02-2D"]["subpart_cycle"] = 4
     r = calc_order(_order(), ctx)
     assert r["cycle"]["subpart_included"] == 0
     assert r["cycle"]["base"] == 6          # 平行分部件不占周期
+    assert all(b["kind"] == "step" for b in r["gantt"]["bars"])   # 不插分部件条
 
 
 def test_ramp_days_from_proc():
@@ -231,4 +238,6 @@ def test_ramp_days_from_proc():
     ctx["proc_map"]["M02-2D"]["ramp_days"] = 2
     ctx["params"]["order_buffer_days"] = 0
     r = calc_order(_order(first_flag="首单"), ctx)
-    assert r["ramp"]["used"] == 2           # 组件级爬坡 2 天同口径（按工艺 ramp_days）
+    assert r["ramp"]["days"] == 2           # proc 原始值
+    assert r["ramp"]["used"] == 2           # 应用值（首单触发）
+    assert r["delivery"]["days"] == 18      # 16 + 2 + 0

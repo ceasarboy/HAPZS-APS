@@ -22,6 +22,7 @@ P_BASE = {
 
 
 def _ctx_min():
+    # 复制自 test_kernel_calc 的最小构造，有意独立（P_BASE 为显式契约，防止联环演化）
     proc = {"code": "M02-2D", "name": "不含SMT二维模块成套工艺", "ramp_days": 1,
             "subpart_mode": None, "subpart_cycle": 0}
     routes = [
@@ -66,3 +67,10 @@ def test_chk_flux_015b_wb_auto_20000():
     assert wb["throughput"] == pytest.approx(20000 / 60)
     rows = {x["key"]: x for x in weekly_load([r], {"params": ctx["params"]})}
     assert rows["模块级|WB|自动WB"]["available"] == pytest.approx(20000 * 6)
+
+    # peak 口径：override 同时替换 mean/peak 取值
+    ctx_peak = _ctx_min()
+    ctx_peak["params"]["wb_auto_flux_override"] = 20000
+    ctx_peak["params"]["use_peak"] = "peak"
+    wb_peak = next(s for s in calc_order(_order(), ctx_peak)["steps"] if s["step_std"] == "WB")
+    assert wb_peak["flux_base"] == 20000
