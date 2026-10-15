@@ -31,7 +31,8 @@
 | 3 上下文装载 | ✅ 完成（含 CHK-CALC-004 联动；pick_mode 行序加固） | `7db6130` `0b1d5e4` |
 | 4 周负荷/产线瓶颈 | ✅ 完成（含 line_bottleneck 补测与 0.85/1.0 边界） | `f07fc70` `28e1508` |
 | 5 官方周负荷算例 + 疑点双档 | ✅ 完成（复原两单组合；三数字全对；清单回写 59 行） | `c98682e` `15bf5aa` |
-| 6 内核收尾（engine.js 对照抽查） | ⏳ 下一步（清单回写已在 Task 5.5 完成） | — |
+| 6 内核收尾（engine.js 对照抽查+清单穷尽性） | ✅ 完成（无未文档化偏差；73 处测试引用全部存在） | `5b67379` |
+| 最终整体审查（Plan 2） | ⏳ 下一步 | — |
 
 - 测试基线：**105 passed, 1 skipped**（内嵌 Python 3.13.5）。
 - 执行记录与经验教训：`docs/superpowers/plans/2026-10-14-mps-rework-plan2-execution-log.md`。
@@ -546,7 +547,7 @@ def calc_order(order: dict, ctx: dict) -> dict:
     """单条工单完整核算（移植 calcOrder + 参数化扩展）。
 
     扩展（相对 mps-web）：round_mode（ceil/exact）、order_buffer_days、
-    ramp_trigger（first_flag/all）、wb_auto_flux_override（模块级自动WB通量覆盖）。
+    ramp_trigger（first_flag/first_only/all）、wb_auto_flux_override（模块级自动WB通量覆盖）。
     """
     from datetime import timedelta
 
@@ -1322,15 +1323,15 @@ async def test_chk_calc_003_m01_2ds_weekly_load(sqlite_session):
 - Modify: `docs/superpowers/plans/2026-10-14-mps-rework-plan1-execution-log.md`（或另建计划 2 执行记录）
 - Create: `backend/app/mps/__init__.py` 导出（如需要）
 
-- [ ] **Step 6.1: 与 mps-web 逐段对照抽查**
+- [x] **Step 6.1: 与 mps-web 逐段对照抽查**
 
 挑 3 段（周期段、通量段、交付段），将 `kernel.py` 与 `engine.js` 对应行逐句比对（执行者用 diff 思路人工核对），在提交信息或报告中说明核对结果；发现偏差即修正。
 
-- [ ] **Step 6.2: 全量回归 + 清单穷尽性对照**
+- [x] **Step 6.2: 全量回归 + 清单穷尽性对照**
 
 `pytest tests -q` 全绿；check-list CALC/CYCLE/YIELD/FLUX/DELIVERY/LOAD 各条目逐一核对其测试用例是否存在且通过（填一张核对表放入执行报告）。
 
-- [ ] **Step 6.3: 提交 + 报告**
+- [x] **Step 6.3: 提交 + 报告**
 
 ```bash
 git add -A

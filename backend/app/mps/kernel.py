@@ -145,7 +145,7 @@ def calc_order(order: dict, ctx: dict) -> dict:
     """单条工单完整核算（移植 calcOrder + 参数化扩展）。
 
     扩展（相对 mps-web）：round_mode（ceil/exact）、order_buffer_days、
-    ramp_trigger（first_flag/all）、wb_auto_flux_override（模块级自动WB通量覆盖）。
+    ramp_trigger（first_flag/first_only/all）、wb_auto_flux_override（模块级自动WB通量覆盖）。
     """
     from datetime import timedelta
 
