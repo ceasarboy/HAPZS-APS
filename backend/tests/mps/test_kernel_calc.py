@@ -241,3 +241,24 @@ def test_ramp_days_from_proc():
     assert r["ramp"]["days"] == 2           # proc 原始值
     assert r["ramp"]["used"] == 2           # 应用值（首单触发）
     assert r["delivery"]["days"] == 18      # 16 + 2 + 0
+
+
+def test_order_priority_passthrough():
+    """优先级透传字段（计划 3A 接口确认：供 cmp_order/result_key 消费）。"""
+    order = _order()
+    order.update({"id": "o-1", "prio_level": "P1", "prio_score": 66.6, "prio_source": "manual",
+                  "prio_manual": 150, "pinned": True, "pinned_at": "2026-10-01", "sort_no": 2.5, "status": "正常"})
+    r = calc_order(order, _ctx_m02_2d())
+    o = r["order"]
+    assert o["id"] == "o-1" and o["prio_level"] == "P1" and o["prio_score"] == 66.6
+    assert o["prio_source"] == "manual" and o["pinned"] is True and o["pinned_at"] == "2026-10-01"
+    assert o["sort_no"] == 2.5 and o["status"] == "正常"
+    # 缺省：prio_source=auto、pinned=False、sort_no=None
+    o2 = calc_order(_order(), _ctx_m02_2d())["order"]
+    assert o2["prio_source"] == "auto" and o2["pinned"] is False and o2["sort_no"] is None
+    # datetime 归一化：pinned_at 始终为 'YYYY-MM-DD' 字符串（cmp 键依赖字符串比较）
+    from datetime import datetime
+
+    o3 = _order()
+    o3["pinned_at"] = datetime(2026, 10, 1, 8, 0)
+    assert calc_order(o3, _ctx_m02_2d())["order"]["pinned_at"] == "2026-10-01"

@@ -188,7 +188,6 @@ Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps.kernel'`。
 相对 engine.js 的字段裁剪（计划 3/5 需要时按需补回）：
 - 未移植 features 的 JSON 字符串解析（本系统模型即 JSON dict）；
 - 未移植 steps[].id / flux_mean / flux_peak_data（balance.js 有意延后）；
-- 未移植 order 的优先级透传字段（计划 3 排产前确认接口是否需要）；
 - 未移植 gantt.vapor 与 process.owner/note（owner 可一行透传，计划 3 需要时加；本模型无 note 字段）；
 - warnings 文案顺序为 sorted 序（JS 为首现序，纯文案差异）；
 - 扩展字段：delivery.buffer_days / delivery.latest_start_date 为本系统新增。
@@ -674,11 +673,15 @@ def calc_order(order: dict, ctx: dict) -> dict:
     gantt = build_gantt(item, t_used, batch_cycle, proc, q)
     return {
         "order": {
-            "order_no": order.get("order_no"), "product": order.get("product"), "code": order["code"],
-            "order_type": order.get("order_type"), "first_flag": first_flag,
+            "id": order.get("id"), "order_no": order.get("order_no"), "product": order.get("product"),
+            "code": order["code"], "order_type": order.get("order_type"), "first_flag": first_flag,
             "water_vapor": "有" if has_vapor else "无", "qty": qty,
             "due_date": order.get("due_date"), "kit_date": order.get("kit_date") or "",
             "priority": order.get("priority"), "remark": order.get("remark"),
+            "prio_level": order.get("prio_level") or "", "prio_score": order.get("prio_score"),
+            "prio_source": order.get("prio_source") or "auto", "prio_manual": order.get("prio_manual"),
+            "pinned": bool(order.get("pinned")), "pinned_at": _fmt_dt(order.get("pinned_at")),
+            "sort_no": order.get("sort_no"), "status": order.get("status") or "正常",
         },
         "process": {"code": proc.get("code"), "name": proc.get("name"), "arch": proc.get("arch")},
         "features": feats,
