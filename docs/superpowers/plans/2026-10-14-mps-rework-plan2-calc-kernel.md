@@ -32,7 +32,7 @@
 | 4 周负荷/产线瓶颈 | ✅ 完成（含 line_bottleneck 补测与 0.85/1.0 边界） | `f07fc70` `28e1508` |
 | 5 官方周负荷算例 + 疑点双档 | ✅ 完成（复原两单组合；三数字全对；清单回写 59 行） | `c98682e` `15bf5aa` |
 | 6 内核收尾（engine.js 对照抽查+清单穷尽性） | ✅ 完成（无未文档化偏差；73 处测试引用全部存在） | `5b67379` |
-| 最终整体审查（Plan 2） | ⏳ 下一步 | — |
+| 最终整体审查（Plan 2） | ✅ 完成（Ready to conclude；无阻断；遗留见执行记录 §六） | — |
 
 - 测试基线：**105 passed, 1 skipped**（内嵌 Python 3.13.5）。
 - 执行记录与经验教训：`docs/superpowers/plans/2026-10-14-mps-rework-plan2-execution-log.md`。
@@ -189,6 +189,8 @@ Expected: FAIL —— `ModuleNotFoundError: No module named 'app.mps.kernel'`。
 - 未移植 features 的 JSON 字符串解析（本系统模型即 JSON dict）；
 - 未移植 steps[].id / flux_mean / flux_peak_data（balance.js 有意延后）；
 - 未移植 order 的优先级透传字段（计划 3 排产前确认接口是否需要）；
+- 未移植 gantt.vapor 与 process.owner/note（owner 可一行透传，计划 3 需要时加；本模型无 note 字段）；
+- warnings 文案顺序为 sorted 序（JS 为首现序，纯文案差异）；
 - 扩展字段：delivery.buffer_days / delivery.latest_start_date 为本系统新增。
 """
 from __future__ import annotations

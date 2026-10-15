@@ -16,6 +16,8 @@
 - 未移植 features 的 JSON 字符串解析（本系统模型即 JSON dict）；
 - 未移植 steps[].id / flux_mean / flux_peak_data（balance.js 有意延后）；
 - 未移植 order 的优先级透传字段（计划 3 排产前确认接口是否需要）；
+- 未移植 gantt.vapor 与 process.owner/note（owner 可一行透传，计划 3 需要时加；本模型无 note 字段）；
+- warnings 文案顺序为 sorted 序（JS 为首现序，纯文案差异）；
 - 扩展字段：delivery.buffer_days / delivery.latest_start_date 为本系统新增。
 """
 from __future__ import annotations
