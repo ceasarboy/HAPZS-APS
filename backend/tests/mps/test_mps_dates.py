@@ -27,3 +27,13 @@ def test_diff_days():
     assert diff_days("2026-12-31", "2026-12-14") == -17
     assert diff_days(None, "2026-01-01") is None
     assert DAY == 86400000
+
+
+def test_datetime_inputs_normalized():
+    from datetime import datetime
+
+    dt = datetime(2026, 1, 2, 3, 4, 5)
+    assert to_date(dt).isoformat() == "2026-01-02"
+    assert to_str(to_date(dt)) == "2026-01-02"
+    assert add_days(dt, 1) == "2026-01-03"
+    assert diff_days(dt, "2026-01-05") == 3
