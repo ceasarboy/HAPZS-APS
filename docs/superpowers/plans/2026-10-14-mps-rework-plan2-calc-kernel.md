@@ -30,10 +30,10 @@
 | 2 calc_order 主体 | ✅ 完成（官方算例 M02-2D 全对 + Node 实跑对照） | `1dbcff2` `676459b` |
 | 3 上下文装载 | ✅ 完成（含 CHK-CALC-004 联动；pick_mode 行序加固） | `7db6130` `0b1d5e4` |
 | 4 周负荷/产线瓶颈 | ✅ 完成（含 line_bottleneck 补测与 0.85/1.0 边界） | `f07fc70` `28e1508` |
-| 5 官方周负荷算例 + 疑点双档 | ⏸ 下一步 | — |
-| 6 内核收尾（对照抽查+清单核对） | ⏸ | — |
+| 5 官方周负荷算例 + 疑点双档 | ✅ 完成（复原两单组合；三数字全对；清单回写 59 行） | `c98682e` `15bf5aa` |
+| 6 内核收尾（engine.js 对照抽查） | ⏳ 下一步（清单回写已在 Task 5.5 完成） | — |
 
-- 测试基线：**96 passed, 1 skipped**（内嵌 Python 3.13.5）。
+- 测试基线：**105 passed, 1 skipped**（内嵌 Python 3.13.5）。
 - 执行记录与经验教训：`docs/superpowers/plans/2026-10-14-mps-rework-plan2-execution-log.md`。
 
 ---
@@ -1242,17 +1242,20 @@ git commit -m "feat(kernel): 周负荷与产线瓶颈移植（判定阈值含边
 
 ### Task 5: 官方周负荷算例复原（M01-2DS）与疑点双档补齐
 
+**执行结果补记（2026-10-14）**：复原完成——"同一周"为两单组合（M02-2D 1000 常规 + M01-2DS 500 首单，Q=1052/529；单 M01-2DS 无法解释 94860，须叠加 §九 第一段），种子数据实测三数字全对（94860/221820/12696 → 2.635(显示2.64)/3.08/0.88，判定 超载/超载/偏紧）。成品：`tests/mps/test_kernel_official_load.py`（1 测试）、`tests/mps/test_kernel_doubts.py`（FLUX-015A/B 2 测试）、`test_kernel_calc.py` 追加 3 测试；质量跟进（`15bf5aa`）另补 FLUX-005/010/011/012 覆盖、数据不变量测试（flux_base=产能×工位、峰值=×1.1，全 28 行）与 015B peak 路径。**check-list 内核条目测试路径与状态已回写（59 行）**。
+
+
 **Files:**
 - Create: `backend/tests/mps/test_kernel_official_load.py`
 - 可能需要：`backend/tests/mps/test_kernel_doubts.py`
 
-- [ ] **Step 5.1: 复原 M01-2DS 周负荷算例数据（调查步）**
+- [x] **Step 5.1: 复原 M01-2DS 周负荷算例数据（调查步）**
 
 读取 `backend/.tmp/mps-extract/封测中心产线成套工艺计算逻辑说明书-V1.6.md`（若不存在，先运行 `python tools/extract_mps_docs.py`）中 §九第二段与表6；再读 V1.7 周计划工作表提取文本，确定"同周"案例的**完整订单集合**与各订单特征值。目标：复现三条负荷率 **2.64 / 3.08 / 0.88**（判定：超载/超载/偏紧）。
 - 若文中仅给 M01-2DS 单订单（500只/首单，N_smt=24、N_die=60、N_wire=300）而数字对不上单订单推算（94860÷36000 等三数来自不同分母），说明算例混合多订单——从 V1.7 提取文本中寻找其余参与订单（如示例区其它行）。
 - 完成判据：给出参与订单清单与推算过程（写入测试注释），三条率用 `pytest.approx(abs=0.01)` 断言。
 
-- [ ] **Step 5.2: 编写官方算例测试**
+- [x] **Step 5.2: 编写官方算例测试**
 
 创建 `backend/tests/mps/test_kernel_official_load.py`（用 `sqlite_session` + `load_mps_seed` + `load_ctx` + `calc_order`/`weekly_load` 组合；订单数据按 Step 5.1 复原结果写入）：
 
@@ -1289,7 +1292,7 @@ async def test_chk_calc_003_m01_2ds_weekly_load(sqlite_session):
 
 若复原证明逻辑书数字含未公开的其它订单口径（无法复现），**停下报告 BLOCKED** 并附复算明细；不得修改断言硬凑。
 
-- [ ] **Step 5.3: 疑点双档测试补齐**
+- [x] **Step 5.3: 疑点双档测试补齐**
 
 创建 `backend/tests/mps/test_kernel_doubts.py`（对既有内核用参数双档验证；引用 check-list 编号）：
 
@@ -1302,11 +1305,11 @@ async def test_chk_calc_003_m01_2ds_weekly_load(sqlite_session):
 - （DELIVERY-003A/B、005A/B、CYCLE-009A/B 已在 Task 2 覆盖，此处引用即可，不重复）
 ```
 
-- [ ] **Step 5.4: 运行 + 全量回归**
+- [x] **Step 5.4: 运行 + 全量回归**
 
 `... -m pytest tests/mps -q`；`... -m pytest tests -q`（预期 ≥60 passed, 1 skipped）。
 
-- [ ] **Step 5.5: 更新 check-list 状态 + 提交**
+- [x] **Step 5.5: 更新 check-list 状态 + 提交**
 
 - 将本次通过条目状态由"待实现"改为"通过"（保留双档疑点条目状态为"阻塞(疑点)"但补注"已实现双档"）；
 - 提交：`git add backend/tests/mps/... docs/checklists/...; git commit -m "test(kernel): 官方周负荷算例复原 + 疑点双档 + 清单状态更新"`。

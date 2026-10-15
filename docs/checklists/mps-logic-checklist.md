@@ -1,6 +1,6 @@
 # MPS 业务逻辑 Check-list（SDD 基准清单）
 
-说明：每条规则对应至少一个测试用例；测试命名 `tests/mps/test_kernel_<分类小写>.py::test_chk_<分类小写>_<3位序号>_<简述>`；状态：待实现 / 通过 / 阻塞(疑点)。
+说明：每条规则对应至少一个测试用例；测试命名 `tests/mps/test_kernel_<分类小写>.py::test_chk_<分类小写>_<3位序号>_<简述>`；状态：待实现 / 通过 / 阻塞(疑点)。 2026-10-14 回写：CALC/CYCLE/YIELD/FLUX/DELIVERY/LOAD 内核条目已实现，测试路径与状态已更新（双档疑点=参数化双档已实现，默认待业务确认）。
 
 ## 分类编码
 - CALC 核算公式（周期/成品率/投料/通量/瓶颈）
@@ -20,65 +20,65 @@
 
 | 编号 | 规则描述 | 来源 | 预期结果 | 测试用例 | 状态 |
 |---|---|---|---|---|---|
-| CHK-CALC-001 | M02-2D 完整算例·周期与通量：路线 DB-WB-调试-封盖前终检-封盖，单件周期 T=1+1+1+1+2−0=6天（加急4天）；参考批量1000≥20→自动DB：6000÷60=100只/天（峰值110）；自动WB：12000÷60=200只/天→瓶颈为DB | V1.6 §九 完整算例（表6） | T单件=6天、加急=4天；采用通量=100只/天；瓶颈工序=DB | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux | 待实现 |
-| CHK-CALC-002 | M02-2D 完整算例·成品率与投料交付链：成品率 0.97×0.99×1×0.995×0.995=0.9507→放量比1.052→投料量⌈1000×1.052⌉=1052只；批量周期 6+⌈(1052−100)/100⌉=16天；瓶颈占用⌈1052÷100⌉=11天；交付 16+0+1=17天；交期12/31→最晚投料12/14 | V1.6 §九 完整算例（表6） | 放量比1.052、投料1052、批量周期16、瓶颈占用11、交付17、最晚投料12/14 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery | 待实现 |
-| CHK-CALC-003 | 同周 M01-2DS（500只/首单，N_smt=24、N_die=60、N_wire=300）周负荷算例：模块级DB（自动）94860÷36000→2.64"超载"；模块级WB（自动）221820÷72000→3.08"超载"；模块级SMT 12696÷14400→0.88"偏紧" | V1.6 §九 完整算例（第二段） | 三条负荷率与判定标签复现；DB/WB提示拆批或加班、SMT预警 | tests/mps/test_kernel_calc.py::test_chk_calc_003_m01_2ds_weekly_load | 待实现 |
-| CHK-CYCLE-001 | 单件装配周期构成：T单件=Σ（路线各工序装配周期）+前置分部件装配周期（仅C系列组件类）；爬坡时间不计入单件周期 | V1.6 §三 装配周期计算逻辑；§六 | M02-2D 5道工序→6天；含前置分部件的组件工艺=Σ工序周期+前置分部件周期 | tests/mps/test_kernel_cycle.py::test_chk_cycle_001_single_piece_sum | 待实现 |
-| CHK-CYCLE-002 | 分部件规则：M系列分部件（如M10-POP上基板、M11-P2P上模块、M07-CHP载片块）为平行结构，不占主体成套工艺周期；C系列（如含PCBA分部件，C02-ME2等）为前置结构，计入周期 | V1.6 §一（V1.6变化②：M系列平行不占周期、C系列前置计入周期）；表7 | 平行分部件不增加T单件；前置分部件增加T单件 | tests/mps/test_kernel_cycle.py::test_chk_cycle_002_parallel_subparts_excluded | 待实现 |
-| CHK-CYCLE-003 | 加急周期压缩分段（按T单件所在区间）：ΔT≤5天→压缩1天；6~10天→压缩2天；>10天→压缩3天 | V1.6 §三（加急口径）；表6算例（6天→4天） | T=5→加急4；T=6→加急4；T=11→加急8 | tests/mps/test_kernel_cycle.py::test_chk_cycle_003_urgent_delta_tiers | 待实现 |
-| CHK-CYCLE-004 | 加急压缩下限：压缩后周期不低于1天 | V1.6 §三（加急口径补充） | T=1、2天时加急周期≥1天 | tests/mps/test_kernel_cycle.py::test_chk_cycle_004_urgent_min_one_day | 待实现 |
-| CHK-CYCLE-005 | 封盖类工序（模块级封盖、组件级激光封盖）在"无水汽含量要求"时，装配周期由2天减为1天 | V1.6 §三；样本字段「有无水汽含量要求(有/无)」 | 有水汽→封盖2天；无水汽→封盖1天 | tests/mps/test_kernel_cycle.py::test_chk_cycle_005_lid_no_moisture_reduce | 待实现 |
-| CHK-CYCLE-006 | 爬坡时间事件触发：仅新品首产/停线复线/工艺变更首件时启用；常规滚动订单取0 | V1.6 §三/§六；样本字段「是否首单/复线/变更首件(否/首单/复线/变更首件)」 | 首单/复线/变更首件→取爬坡时间；常规→0 | tests/mps/test_kernel_cycle.py::test_chk_cycle_006_rampup_trigger | 待实现 |
-| CHK-CYCLE-007 | 爬坡时间取值：芯片级/模块级=1天（含二维/三维模块、载片块、PCBA）；组件级=2天 | V1.6 §六；§一（③爬坡时间调整） | M01-2DS首单+1天；C01-ME1首单+2天 | tests/mps/test_kernel_cycle.py::test_chk_cycle_007_rampup_days_by_level | 待实现 |
-| CHK-CYCLE-008 | 爬坡期有效通量=基准通量×MIN(1, t/爬坡时间)；仅用于产能校验折算，不影响单件装配周期 | V1.6 §六 | t=0.5×爬坡时间时通量折半；单件周期不变 | tests/mps/test_kernel_cycle.py::test_chk_cycle_008_rampup_flux_min_ratio | 待实现 |
-| CHK-YIELD-001 | 成品率链：成套工艺成品率 Y=Π（各工序综合成品率） | V1.6 §成品率与装配放量比；表6 | M02-2D：0.97×0.99×1×0.995×0.995=0.9507 | tests/mps/test_kernel_yield.py::test_chk_yield_001_chain_product | 待实现 |
-| CHK-YIELD-002 | 成品率口径：仅"工序综合成品率"纳入计算（维护于主数据H列）；一次装配合格率、一次检验合格率不纳入计算，仅存档 | V1.6 表格3（合格率字段纳入性） | 放量比中不含一次装配/一次检验合格率 | tests/mps/test_kernel_yield.py::test_chk_yield_002_only_composite_rate | 待实现 |
-| CHK-YIELD-003 | 装配放量比=1/Y | V1.6 §成品率与装配放量比 | Y=0.9507→放量比1.052 | tests/mps/test_kernel_yield.py::test_chk_yield_003_ratio_inverse | 待实现 |
-| CHK-YIELD-004 | 投料量=⌈计划批量×放量比⌉ | V1.6 §成品率与装配放量比；表6 | ⌈1000×1.052⌉=1052只 | tests/mps/test_kernel_yield.py::test_chk_yield_004_feed_ceil | 待实现 |
-| CHK-YIELD-005 | 产出校核迭代：预期产出=投料量×成品率≥计划批量；不足则放大投料量迭代 | V1.6 §成品率与装配放量比；§八⑤ | 产出<批量时投料量上调并重算直至产出≥批量 | tests/mps/test_kernel_yield.py::test_chk_yield_005_output_check_iterate | 待实现 |
-| CHK-YIELD-006 | 组件钎焊工序良率不纳入装配放量比计算（组件放量比只计算DB、WB、调试等工序）【疑点另记】 | V1.6 §成品率与装配放量比（组件钎焊剔除规则） | 组件成品率链剔除钎焊良率；与通用Π口径的差异需单独记录 | tests/mps/test_kernel_yield.py::test_chk_yield_006_component_braze_excluded | 阻塞(疑点) |
-| CHK-FLUX-001 | 工序基准均值通量=单工位日产能×工位数（工序特征量/天） | V1.6 §五 5.1 | 单工位产能×工位数，单位=工序核算特征单位/天 | tests/mps/test_kernel_flux.py::test_chk_flux_001_base_mean_flux | 待实现 |
-| CHK-FLUX-002 | 工序基准峰值通量=基准均值通量×峰值系数1.1 | V1.6 §五 5.1 | M02-2D DB：100只/天→峰值110只/天 | tests/mps/test_kernel_flux.py::test_chk_flux_002_peak_flux_1_1 | 待实现 |
-| CHK-FLUX-003 | 工序产能计量特征单位：植球N_b、倒装N_fc、SMT N_smt、DB N_die、WB N_wire、电装N_a（焊点+螺钉）、钎焊N_BS；调试/终检/封盖/叠层/底填/测试按只产品N | V1.6 §五 5.1；样本字段N_b/N_fc/N_smt/N_die/N_wire/N_bs/N_a | 各工序按对应特征计量，取错特征即出数错误 | tests/mps/test_kernel_flux.py::test_chk_flux_003_feature_units | 待实现 |
-| CHK-FLUX-004 | 产品级通量（只产品/天）=工序基准通量×折算系数÷单只产品特征用量N_x（折算系数默认1.0，≥2种时按Y_die/Y_wire） | V1.6 §五 5.3 | 自动DB：6000÷60=100只/天 | tests/mps/test_kernel_flux.py::test_chk_flux_004_product_flux_formula | 待实现 |
-| CHK-FLUX-005 | 特征为"只产品N"的工序直接取用基准通量（不除以N_x） | V1.6 §五 5.3 | 调试/终检/封盖类通量=基准通量 | tests/mps/test_kernel_flux.py::test_chk_flux_005_only_product_take_base | 待实现 |
-| CHK-FLUX-006 | DB使用两种以上类型胶水时触发折算：有效通量=折算后通量×Y_die | V1.6 §五 5.3；样本字段「DB/胶水类型数」 | 类型数=1→不折算；≥2→乘Y_die | tests/mps/test_kernel_flux.py::test_chk_flux_006_db_coeff_trigger | 待实现 |
-| CHK-FLUX-007 | Y_die取值：胶水2种→0.9；3种→0.8；1种→1.0 | V1.6 §五 5.3（Y_die取值规则） | 2种→×0.9；3种→×0.8 | tests/mps/test_kernel_flux.py::test_chk_flux_007_db_coeff_values | 待实现 |
-| CHK-FLUX-008 | WB使用两种以上规格引线时触发折算：引线2种→Y_wire=0.95；3种→0.9；1种→1.0 | V1.6 §五 5.3（Y_wire取值规则）；样本字段「WB/引线类型数」 | 2种→×0.95；3种→×0.9 | tests/mps/test_kernel_flux.py::test_chk_flux_008_wb_coeff_values | 待实现 |
-| CHK-FLUX-009 | 生产模式分流·模块级DB：参考批量＜20只→半自动2000芯片/天；≥20只→自动6000芯片/天 | V1.6 表格4（生产模式分流） | 参考批量1000→自动6000芯片/天 | tests/mps/test_kernel_flux.py::test_chk_flux_009_db_mode_split_module | 待实现 |
-| CHK-FLUX-010 | 生产模式分流·模块级WB：＜20只→半自动4500根丝/天；≥20只→自动档（自动通量取值见CHK-FLUX-015A/015B疑点） | V1.6 表格4（生产模式分流） | 参考批量1000→自动档；同阈值20只与DB一致 | tests/mps/test_kernel_flux.py::test_chk_flux_010_wb_mode_split_module | 待实现 |
-| CHK-FLUX-011 | 生产模式分流·组件级：DB 1600/4000芯片/天、WB 4000/10000根丝/天（半自动/自动）；阈值＜10只→半自动，≥10只→自动 | V1.6 表格4；§八⑤ | 批量8只→半自动；批量18只→自动 | tests/mps/test_kernel_flux.py::test_chk_flux_011_mode_split_component | 待实现 |
-| CHK-FLUX-012 | 参考批量=1000只（MPS计算逻辑参数表D列，默认），用于基准通量模式判定；周计划负荷按订单实际批量动态分流 | V1.6 §五 5.2；表格5（参考批量维护位置） | 基准档按1000判定；周负荷按各订单实际批量各自分流 | tests/mps/test_kernel_flux.py::test_chk_flux_012_ref_batch_1000 | 待实现 |
-| CHK-FLUX-013 | 产品基准通量=MIN（路线各工序产品级均值通量）；瓶颈=取小工序，底表G列自动标出瓶颈工序 | V1.6 §五 5.4（E/F列MINIFS取小、G列瓶颈工序） | M02-2D：DB 100<WB 200→瓶颈=DB | tests/mps/test_kernel_flux.py::test_chk_flux_013_bottleneck_min | 待实现 |
-| CHK-FLUX-014 | 缺BOM特征参数时，仅"只产品N"类工序参与取小，H列提示"缺BOM特征参数" | V1.6 §五 5.4；§八④ | 未录特征时取小结果仅含只产品类工序并输出缺参提示 | tests/mps/test_kernel_flux.py::test_chk_flux_014_missing_feature_excluded | 待实现 |
-| CHK-FLUX-015A | 疑点·模块级WB自动通量取值A：12000根丝/天（V1.6 口径）；实现用 `wb_auto_flux_override=12000` | V1.6 表格4 | WB自动通量=12000，产品级通量=12000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015a_wb_auto_12000 | 阻塞(疑点) |
-| CHK-FLUX-015B | 疑点·模块级WB自动通量取值B：20000根丝/天；实现用 `wb_auto_flux_override=20000` | V1.7 周计划汇总区（模块级自动WB 周可用 120000÷6=20000） | WB自动通量=20000，产品级通量=20000÷N_wire | tests/mps/test_kernel_flux.py::test_chk_flux_015b_wb_auto_20000 | 阻塞(疑点) |
-| CHK-DELIVERY-001 | 批量总装配周期=T单件+批量项（投料量口径） | V1.6 §三（批量总装配周期）；表6 | M02-2D：6+10=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_001_batch_cycle_sum | 待实现 |
-| CHK-DELIVERY-002 | 批量项=(投料量−瓶颈通量)÷瓶颈通量；计算为负时取0 | V1.7 逻辑⑩ 原文（批量项负值取0） | 投料量≤瓶颈通量→批量项=0 | tests/mps/test_kernel_delivery.py::test_chk_delivery_002_batch_term_formula | 待实现 |
-| CHK-DELIVERY-003A | 疑点·批量项取整取值A：向上取整⌈⌉（V1.6 算例口径，实现默认 `round_mode="ceil"`）→6+⌈9.52⌉=16天 | V1.6 §九 表6（⌈(1052−100)/100⌉） | M02-2D 批量周期=16天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003a_batch_term_ceil | 阻塞(疑点) |
-| CHK-DELIVERY-003B | 疑点·批量项取整取值B：不取整（Excel口径）→6+9.52=15.52天 | 设计规格 §11·Excel不取整口径 | M02-2D 批量周期=15.52天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_003b_batch_term_no_ceil | 阻塞(疑点) |
-| CHK-DELIVERY-004 | 交付周期=批量总装配周期+爬坡时间（仅首单/复线/变更首件，常规=0）+订单缓冲（默认1天） | V1.6 §六（交付周期公式） | M02-2D常规：16+0+1=17天；首单：16+1+1=18天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_004_delivery_cycle_formula | 待实现 |
-| CHK-DELIVERY-005A | 疑点·订单缓冲取值A：计入默认1天缓冲（V1.6 口径） | V1.6 §六（订单缓冲默认1天） | 交付周期含+1天 | tests/mps/test_kernel_delivery.py::test_chk_delivery_005a_buffer_included | 阻塞(疑点) |
-| CHK-DELIVERY-005B | 疑点·订单缓冲取值B：不计入缓冲（0天） | 设计规格 §11·缓冲不计入口径 | 交付周期不含缓冲天数 | tests/mps/test_kernel_delivery.py::test_chk_delivery_005b_buffer_excluded | 阻塞(疑点) |
-| CHK-DELIVERY-006 | 最晚投料日=要求交期−交付周期 | V1.6 §六；§八② | 交期2026-12-31、交付17天→最晚投料2026-12-14 | tests/mps/test_kernel_delivery.py::test_chk_delivery_006_latest_start_date | 待实现 |
-| CHK-DELIVERY-007 | 最晚投料日晚于本周的排入下周 | V1.6 §八② | 超出本周的订单顺延标记至下周排产 | tests/mps/test_kernel_delivery.py::test_chk_delivery_007_overflow_next_week | 待实现 |
-| CHK-DELIVERY-008 | 加急订单周期压缩口径：T单件取加急值（M02-2D 6→4天），交付周期与最晚投料日按压缩后周期计算 | V1.6 §三、表6；样本字段「订单类型(常规/加急)」 | 加急M02-2D T=4天，交付链相应提前 | tests/mps/test_kernel_delivery.py::test_chk_delivery_008_urgent_compression | 待实现 |
-| CHK-LOAD-001 | 瓶颈占用（天）=⌈投料量÷采用通量⌉ | V1.6 §八②；表6 | M02-2D：⌈1052÷100⌉=11天 | tests/mps/test_kernel_load.py::test_chk_load_001_bottleneck_occupancy_ceil | 待实现 |
-| CHK-LOAD-002 | 采用通量口径：瓶颈工序产品级基准均值通量（按工序产品装配数量折算） | V1.6 §三（瓶颈工序基准均值通量按装配数量折算）；§八② | M02-2D 采用通量=100只/天 | tests/mps/test_kernel_load.py::test_chk_load_002_adopted_flux_mean | 待实现 |
-| CHK-LOAD-003 | 周负荷=Σ（投料量×单只特征用量） | V1.6 §八③ | 同周同工序各订单投料量×特征用量求和 | tests/mps/test_kernel_load.py::test_chk_load_003_weekly_load_sum | 待实现 |
-| CHK-LOAD-004 | 周负荷汇总匹配口径：按产品级别+规范工序名匹配工序列；仅统计路线含该工序的订单 | V1.6 §八③（汇总区按28道工序输出） | 路线不含DB的订单不计入DB列负荷 | tests/mps/test_kernel_load.py::test_chk_load_004_route_match_scope | 待实现 |
-| CHK-LOAD-005 | 周可用=工序基准均值通量×周工作天数（默认6天，参数区七维护） | V1.6 §八③；表格5（周工作天数维护位置） | 模块级DB自动：6000×6=36000 | tests/mps/test_kernel_load.py::test_chk_load_005_weekly_capacity_6d | 待实现 |
-| CHK-LOAD-006 | 负荷率=周负荷÷周可用 | V1.6 §八③ | 94860÷36000=2.64 | tests/mps/test_kernel_load.py::test_chk_load_006_load_ratio | 待实现 |
-| CHK-LOAD-007 | 判定规则：负荷率＞100%→"超载"（拆批/加班/外协） | V1.6 §八④ | 264%→标"超载" | tests/mps/test_kernel_load.py::test_chk_load_007_overload_gt_100 | 待实现 |
-| CHK-LOAD-008 | 判定规则：85%~100%→"偏紧"（预警） | V1.6 §八④ | 88%→标"偏紧"并预警 | tests/mps/test_kernel_load.py::test_chk_load_008_tight_85_100 | 待实现 |
-| CHK-LOAD-009 | 判定规则：＜85%→"正常" | V1.6 §八④ | 50%→标"正常" | tests/mps/test_kernel_load.py::test_chk_load_009_normal_lt_85 | 待实现 |
-| CHK-LOAD-010 | 缺BOM特征参数的工序自动提示"缺特征参数"，需在所属级别核算表补录 | V1.6 §八④；§五 5.4 | 缺参工序输出提示文案 | tests/mps/test_kernel_load.py::test_chk_load_010_missing_feature_hint | 待实现 |
-| CHK-CALC-004 | 数据流联动：上游参数（产线工序主数据/核算数据库/逻辑底表/参数表）修改后，下游（清单/周计划）指标自动刷新；以工艺代号为主键一次维护、全表联动 | V1.6 §一/§八（参数维护职责与数据流，表格5） | 修改工序主数据后，清单周期/通量/周负荷按链联动重算 | tests/mps/test_kernel_calc.py::test_chk_calc_004_dataflow_propagation | 待实现 |
-| CHK-CYCLE-009A | 疑点·爬坡触发口径A：新品首产/停线复线/工艺变更首件三类事件均触发（V1.6 §三/§六、V1.7 逻辑⑦；参数 ramp_trigger 档一） | V1.6 §三/§六；V1.7 逻辑⑦；样本字段「是否首单/复线/变更首件」 | 首单/复线/变更首件均加爬坡时间；常规滚动订单=0 | tests/mps/test_kernel_cycle.py::test_chk_cycle_009a_ramp_three_events | 阻塞(疑点) |
-| CHK-CYCLE-009B | 疑点·爬坡触发口径B：仅首单触发（V1.7 计算器口径"事件触发：仅首单启用，常规/加急取0"） | V1.7 §六（批量装配周期计算器爬坡行） | 仅首单加爬坡时间；复线/变更首件取0 | tests/mps/test_kernel_cycle.py::test_chk_cycle_009b_ramp_first_only | 阻塞(疑点) |
-| CHK-FLUX-016A | 疑点·BOM特征数据源A：工单行（样本24列逐单携带 N_b~N_a 与胶水/引线类型数；设计规格 D13 首版存工单行） | 样本24列字段；设计规格 D13/§4 order | 特征从工单行读取，缺列时才提示缺参 | tests/mps/test_kernel_flux.py::test_chk_flux_016a_features_from_order_row | 阻塞(疑点) |
-| CHK-FLUX-016B | 疑点·BOM特征数据源B：采集表（V1.6 §5.3/表格5、V1.7 逻辑注：特征按产品级别录入●装配周期核算表，工单行不携带） | V1.6 §5.3（表格5）；V1.7 逻辑注（"缺BOM特征参数"提示） | 特征从采集表按产品匹配，未录工序提示「缺BOM特征参数」 | tests/mps/test_kernel_flux.py::test_chk_flux_016b_features_from_collection | 阻塞(疑点) |
-| CHK-FLUX-017 | 第2组特征列：N_die-2/DB第2组胶水类型数/N_wire-2/WB第2组引线类型数随工单行导入，按组折算（Y_die2/Y_wire2；M10-POP 等双组工艺） | 计划1 Task6 FEATURE_MAP/FEATURE_FIELDS（特征别名表） | 双组特征各自参与对应组通量折算 | tests/mps/test_kernel_flux.py::test_chk_flux_017_second_group_features | 待实现 |
+| CHK-CALC-001 | M02-2D 完整算例·周期与通量：路线 DB-WB-调试-封盖前终检-封盖，单件周期 T=1+1+1+1+2−0=6天（加急4天）；参考批量1000≥20→自动DB：6000÷60=100只/天（峰值110）；自动WB：12000÷60=200只/天→瓶颈为DB | V1.6 §九 完整算例（表6） | T单件=6天、加急=4天；采用通量=100只/天；瓶颈工序=DB | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux | 通过 |
+| CHK-CALC-002 | M02-2D 完整算例·成品率与投料交付链：成品率 0.97×0.99×1×0.995×0.995=0.9507→放量比1.052→投料量⌈1000×1.052⌉=1052只；批量周期 6+⌈(1052−100)/100⌉=16天；瓶颈占用⌈1052÷100⌉=11天；交付 16+0+1=17天；交期12/31→最晚投料12/14 | V1.6 §九 完整算例（表6） | 放量比1.052、投料1052、批量周期16、瓶颈占用11、交付17、最晚投料12/14 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery | 通过 |
+| CHK-CALC-003 | 同周 M01-2DS（500只/首单，N_smt=24、N_die=60、N_wire=300）周负荷算例：模块级DB（自动）94860÷36000→2.64"超载"；模块级WB（自动）221820÷72000→3.08"超载"；模块级SMT 12696÷14400→0.88"偏紧" | V1.6 §九 完整算例（第二段） | 三条负荷率与判定标签复现；DB/WB提示拆批或加班、SMT预警 | tests/mps/test_kernel_official_load.py::test_chk_calc_003_m01_2ds_weekly_load | 通过 |
+| CHK-CYCLE-001 | 单件装配周期构成：T单件=Σ（路线各工序装配周期）+前置分部件装配周期（仅C系列组件类）；爬坡时间不计入单件周期 | V1.6 §三 装配周期计算逻辑；§六 | M02-2D 5道工序→6天；含前置分部件的组件工艺=Σ工序周期+前置分部件周期 | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux、test_gantt_subpart_bar | 通过 |
+| CHK-CYCLE-002 | 分部件规则：M系列分部件（如M10-POP上基板、M11-P2P上模块、M07-CHP载片块）为平行结构，不占主体成套工艺周期；C系列（如含PCBA分部件，C02-ME2等）为前置结构，计入周期 | V1.6 §一（V1.6变化②：M系列平行不占周期、C系列前置计入周期）；表7 | 平行分部件不增加T单件；前置分部件增加T单件 | tests/mps/test_kernel_calc.py::test_chk_cycle_002_parallel_subparts_excluded、test_gantt_subpart_bar | 通过 |
+| CHK-CYCLE-003 | 加急周期压缩分段（按T单件所在区间）：ΔT≤5天→压缩1天；6~10天→压缩2天；>10天→压缩3天 | V1.6 §三（加急口径）；表6算例（6天→4天） | T=5→加急4；T=6→加急4；T=11→加急8 | tests/mps/test_kernel_units.py::test_urgent_cycle_tiers | 通过 |
+| CHK-CYCLE-004 | 加急压缩下限：压缩后周期不低于1天 | V1.6 §三（加急口径补充） | T=1、2天时加急周期≥1天 | tests/mps/test_kernel_units.py::test_urgent_cycle_tiers（下限档） | 通过 |
+| CHK-CYCLE-005 | 封盖类工序（模块级封盖、组件级激光封盖）在"无水汽含量要求"时，装配周期由2天减为1天 | V1.6 §三；样本字段「有无水汽含量要求(有/无)」 | 有水汽→封盖2天；无水汽→封盖1天 | tests/mps/test_kernel_calc.py::test_chk_cycle_005_vapor_cap | 通过 |
+| CHK-CYCLE-006 | 爬坡时间事件触发：仅新品首产/停线复线/工艺变更首件时启用；常规滚动订单取0 | V1.6 §三/§六；样本字段「是否首单/复线/变更首件(否/首单/复线/变更首件)」 | 首单/复线/变更首件→取爬坡时间；常规→0 | tests/mps/test_kernel_calc.py::test_chk_cycle_006_007_ramp、test_chk_cycle_009_ramp_trigger_variants | 通过 |
+| CHK-CYCLE-007 | 爬坡时间取值：芯片级/模块级=1天（含二维/三维模块、载片块、PCBA）；组件级=2天 | V1.6 §六；§一（③爬坡时间调整） | M01-2DS首单+1天；C01-ME1首单+2天 | tests/mps/test_kernel_calc.py::test_chk_cycle_006_007_ramp、test_ramp_days_from_proc | 通过 |
+| CHK-CYCLE-008 | 爬坡期有效通量=基准通量×MIN(1, t/爬坡时间)；仅用于产能校验折算，不影响单件装配周期 | V1.6 §六 | t=0.5×爬坡时间时通量折半；单件周期不变 | tests/mps/test_kernel_units.py::test_ramp_flux_factor（单元级；集成调用待计划3） | 通过 |
+| CHK-YIELD-001 | 成品率链：成套工艺成品率 Y=Π（各工序综合成品率） | V1.6 §成品率与装配放量比；表6 | M02-2D：0.97×0.99×1×0.995×0.995=0.9507 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery | 通过 |
+| CHK-YIELD-002 | 成品率口径：仅"工序综合成品率"纳入计算（维护于主数据H列）；一次装配合格率、一次检验合格率不纳入计算，仅存档 | V1.6 表格3（合格率字段纳入性） | 放量比中不含一次装配/一次检验合格率 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery（chain 仅取综合成品率） | 通过 |
+| CHK-YIELD-003 | 装配放量比=1/Y | V1.6 §成品率与装配放量比 | Y=0.9507→放量比1.052 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery | 通过 |
+| CHK-YIELD-004 | 投料量=⌈计划批量×放量比⌉ | V1.6 §成品率与装配放量比；表6 | ⌈1000×1.052⌉=1052只 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery | 通过 |
+| CHK-YIELD-005 | 产出校核迭代：预期产出=投料量×成品率≥计划批量；不足则放大投料量迭代 | V1.6 §成品率与装配放量比；§八⑤ | 产出<批量时投料量上调并重算直至产出≥批量 | tests/mps/test_kernel_calc.py::test_chk_yield_005_output_check | 通过 |
+| CHK-YIELD-006 | 组件钎焊工序良率不纳入装配放量比计算（组件放量比只计算DB、WB、调试等工序）【疑点另记】 | V1.6 §成品率与装配放量比（组件钎焊剔除规则） | 组件成品率链剔除钎焊良率；与通用Π口径的差异需单独记录 | tests/mps/test_kernel_calc.py::test_chk_yield_006_component_braze_excluded | 阻塞(疑点·双档已实现) |
+| CHK-FLUX-001 | 工序基准均值通量=单工位日产能×工位数（工序特征量/天） | V1.6 §五 5.1 | 单工位产能×工位数，单位=工序核算特征单位/天 | tests/mps/test_kernel_context.py::test_flux_master_data_invariants | 通过 |
+| CHK-FLUX-002 | 工序基准峰值通量=基准均值通量×峰值系数1.1 | V1.6 §五 5.1 | M02-2D DB：100只/天→峰值110只/天 | tests/mps/test_kernel_context.py::test_flux_master_data_invariants | 通过 |
+| CHK-FLUX-003 | 工序产能计量特征单位：植球N_b、倒装N_fc、SMT N_smt、DB N_die、WB N_wire、电装N_a（焊点+螺钉）、钎焊N_BS；调试/终检/封盖/叠层/底填/测试按只产品N | V1.6 §五 5.1；样本字段N_b/N_fc/N_smt/N_die/N_wire/N_bs/N_a | 各工序按对应特征计量，取错特征即出数错误 | tests/mps/test_seed_loader.py::test_all_route_features_resolvable、tests/mps/test_kernel_units.py::test_feature_usage_and_missing | 通过 |
+| CHK-FLUX-004 | 产品级通量（只产品/天）=工序基准通量×折算系数÷单只产品特征用量N_x（折算系数默认1.0，≥2种时按Y_die/Y_wire） | V1.6 §五 5.3 | 自动DB：6000÷60=100只/天 | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux | 通过 |
+| CHK-FLUX-005 | 特征为"只产品N"的工序直接取用基准通量（不除以N_x） | V1.6 §五 5.3 | 调试/终检/封盖类通量=基准通量 | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux（调试/封盖=基准通量） | 通过 |
+| CHK-FLUX-006 | DB使用两种以上类型胶水时触发折算：有效通量=折算后通量×Y_die | V1.6 §五 5.3；样本字段「DB/胶水类型数」 | 类型数=1→不折算；≥2→乘Y_die | tests/mps/test_kernel_units.py::test_conv_factor_db_wb | 通过 |
+| CHK-FLUX-007 | Y_die取值：胶水2种→0.9；3种→0.8；1种→1.0 | V1.6 §五 5.3（Y_die取值规则） | 2种→×0.9；3种→×0.8 | tests/mps/test_kernel_units.py::test_conv_factor_db_wb | 通过 |
+| CHK-FLUX-008 | WB使用两种以上规格引线时触发折算：引线2种→Y_wire=0.95；3种→0.9；1种→1.0 | V1.6 §五 5.3（Y_wire取值规则）；样本字段「WB/引线类型数」 | 2种→×0.95；3种→×0.9 | tests/mps/test_kernel_units.py::test_conv_factor_db_wb、test_conv_factor_wb_second_group_and_default | 通过 |
+| CHK-FLUX-009 | 生产模式分流·模块级DB：参考批量＜20只→半自动2000芯片/天；≥20只→自动6000芯片/天 | V1.6 表格4（生产模式分流） | 参考批量1000→自动6000芯片/天 | tests/mps/test_kernel_units.py::test_pick_mode_module_db_split | 通过 |
+| CHK-FLUX-010 | 生产模式分流·模块级WB：＜20只→半自动4500根丝/天；≥20只→自动档（自动通量取值见CHK-FLUX-015A/015B疑点） | V1.6 表格4（生产模式分流） | 参考批量1000→自动档；同阈值20只与DB一致 | tests/mps/test_kernel_units.py::test_pick_mode_wb_split_module | 通过 |
+| CHK-FLUX-011 | 生产模式分流·组件级：DB 1600/4000芯片/天、WB 4000/10000根丝/天（半自动/自动）；阈值＜10只→半自动，≥10只→自动 | V1.6 表格4；§八⑤ | 批量8只→半自动；批量18只→自动 | tests/mps/test_kernel_units.py::test_pick_mode_component_split | 通过 |
+| CHK-FLUX-012 | 参考批量=1000只（MPS计算逻辑参数表D列，默认），用于基准通量模式判定；周计划负荷按订单实际批量动态分流 | V1.6 §五 5.2；表格5（参考批量维护位置） | 基准档按1000判定；周负荷按各订单实际批量各自分流 | tests/mps/test_kernel_context.py::test_load_ctx_from_seed、test_small_qty_uses_semi_mode | 通过 |
+| CHK-FLUX-013 | 产品基准通量=MIN（路线各工序产品级均值通量）；瓶颈=取小工序，底表G列自动标出瓶颈工序 | V1.6 §五 5.4（E/F列MINIFS取小、G列瓶颈工序） | M02-2D：DB 100<WB 200→瓶颈=DB | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux | 通过 |
+| CHK-FLUX-014 | 缺BOM特征参数时，仅"只产品N"类工序参与取小，H列提示"缺BOM特征参数" | V1.6 §五 5.4；§八④ | 未录特征时取小结果仅含只产品类工序并输出缺参提示 | tests/mps/test_kernel_calc.py::test_warnings_happy_missing_and_no_wc（仅只产品参与取小） | 通过 |
+| CHK-FLUX-015A | 疑点·模块级WB自动通量取值A：12000根丝/天（V1.6 口径）；实现用 `wb_auto_flux_override=12000` | V1.6 表格4 | WB自动通量=12000，产品级通量=12000÷N_wire | tests/mps/test_kernel_doubts.py::test_chk_flux_015a_wb_auto_12000 | 阻塞(疑点·双档已实现) |
+| CHK-FLUX-015B | 疑点·模块级WB自动通量取值B：20000根丝/天；实现用 `wb_auto_flux_override=20000` | V1.7 周计划汇总区（模块级自动WB 周可用 120000÷6=20000） | WB自动通量=20000，产品级通量=20000÷N_wire | tests/mps/test_kernel_doubts.py::test_chk_flux_015b_wb_auto_20000 | 阻塞(疑点·双档已实现) |
+| CHK-DELIVERY-001 | 批量总装配周期=T单件+批量项（投料量口径） | V1.6 §三（批量总装配周期）；表6 | M02-2D：6+10=16天 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery | 通过 |
+| CHK-DELIVERY-002 | 批量项=(投料量−瓶颈通量)÷瓶颈通量；计算为负时取0 | V1.7 逻辑⑩ 原文（批量项负值取0） | 投料量≤瓶颈通量→批量项=0 | tests/mps/test_kernel_calc.py::test_chk_delivery_002_negative_term_zero | 通过 |
+| CHK-DELIVERY-003A | 疑点·批量项取整取值A：向上取整⌈⌉（V1.6 算例口径，实现默认 `round_mode="ceil"`）→6+⌈9.52⌉=16天 | V1.6 §九 表6（⌈(1052−100)/100⌉） | M02-2D 批量周期=16天 | tests/mps/test_kernel_calc.py::test_chk_delivery_003_round_mode_variants（ceil 档） | 阻塞(疑点·双档已实现) |
+| CHK-DELIVERY-003B | 疑点·批量项取整取值B：不取整（Excel口径）→6+9.52=15.52天 | 设计规格 §11·Excel不取整口径 | M02-2D 批量周期=15.52天 | tests/mps/test_kernel_calc.py::test_chk_delivery_003_round_mode_variants（exact 档） | 阻塞(疑点·双档已实现) |
+| CHK-DELIVERY-004 | 交付周期=批量总装配周期+爬坡时间（仅首单/复线/变更首件，常规=0）+订单缓冲（默认1天） | V1.6 §六（交付周期公式） | M02-2D常规：16+0+1=17天；首单：16+1+1=18天 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery、test_chk_cycle_006_007_ramp | 通过 |
+| CHK-DELIVERY-005A | 疑点·订单缓冲取值A：计入默认1天缓冲（V1.6 口径） | V1.6 §六（订单缓冲默认1天） | 交付周期含+1天 | tests/mps/test_kernel_calc.py::test_chk_delivery_004_005_buffer_variants（=1 档） | 阻塞(疑点·双档已实现) |
+| CHK-DELIVERY-005B | 疑点·订单缓冲取值B：不计入缓冲（0天） | 设计规格 §11·缓冲不计入口径 | 交付周期不含缓冲天数 | tests/mps/test_kernel_calc.py::test_chk_delivery_004_005_buffer_variants（=0 档） | 阻塞(疑点·双档已实现) |
+| CHK-DELIVERY-006 | 最晚投料日=要求交期−交付周期 | V1.6 §六；§八② | 交期2026-12-31、交付17天→最晚投料2026-12-14 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery、test_due_none_and_unknown_code | 通过 |
+| CHK-DELIVERY-007 | 最晚投料日晚于本周的排入下周 | V1.6 §八② | 超出本周的订单顺延标记至下周排产 | tests/mps/test_kernel_delivery.py::test_chk_delivery_007_overflow_next_week | 待实现（周计划顺延，计划3） |
+| CHK-DELIVERY-008 | 加急订单周期压缩口径：T单件取加急值（M02-2D 6→4天），交付周期与最晚投料日按压缩后周期计算 | V1.6 §三、表6；样本字段「订单类型(常规/加急)」 | 加急M02-2D T=4天，交付链相应提前 | tests/mps/test_kernel_calc.py::test_urgent_used_in_batch_and_delivery | 通过 |
+| CHK-LOAD-001 | 瓶颈占用（天）=⌈投料量÷采用通量⌉ | V1.6 §八②；表6 | M02-2D：⌈1052÷100⌉=11天 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery（bottleneck_days=11） | 通过 |
+| CHK-LOAD-002 | 采用通量口径：瓶颈工序产品级基准均值通量（按工序产品装配数量折算） | V1.6 §三（瓶颈工序基准均值通量按装配数量折算）；§八② | M02-2D 采用通量=100只/天 | tests/mps/test_kernel_calc.py::test_chk_calc_001_m02_2d_cycle_flux（采用通量=100，均值口径） | 通过 |
+| CHK-LOAD-003 | 周负荷=Σ（投料量×单只特征用量） | V1.6 §八③ | 同周同工序各订单投料量×特征用量求和 | tests/mps/test_kernel_load.py::test_weekly_load_and_judge、test_weekly_load_sort_orders_detail_and_defaults | 通过 |
+| CHK-LOAD-004 | 周负荷汇总匹配口径：按产品级别+规范工序名匹配工序列；仅统计路线含该工序的订单 | V1.6 §八③（汇总区按28道工序输出） | 路线不含DB的订单不计入DB列负荷 | tests/mps/test_kernel_load.py::test_weekly_load_scope_route_without_db | 通过 |
+| CHK-LOAD-005 | 周可用=工序基准均值通量×周工作天数（默认6天，参数区七维护） | V1.6 §八③；表格5（周工作天数维护位置） | 模块级DB自动：6000×6=36000 | tests/mps/test_kernel_load.py::test_weekly_load_and_judge、tests/mps/test_kernel_official_load.py::test_chk_calc_003_m01_2ds_weekly_load | 通过 |
+| CHK-LOAD-006 | 负荷率=周负荷÷周可用 | V1.6 §八③ | 94860÷36000=2.64 | tests/mps/test_kernel_official_load.py::test_chk_calc_003_m01_2ds_weekly_load | 通过 |
+| CHK-LOAD-007 | 判定规则：负荷率＞100%→"超载"（拆批/加班/外协） | V1.6 §八④ | 264%→标"超载" | tests/mps/test_kernel_load.py::test_judge_thresholds、tests/mps/test_kernel_official_load.py::test_chk_calc_003_m01_2ds_weekly_load | 通过 |
+| CHK-LOAD-008 | 判定规则：85%~100%→"偏紧"（预警） | V1.6 §八④ | 88%→标"偏紧"并预警 | tests/mps/test_kernel_load.py::test_judge_thresholds、test_weekly_load_boundary_085 | 通过 |
+| CHK-LOAD-009 | 判定规则：＜85%→"正常" | V1.6 §八④ | 50%→标"正常" | tests/mps/test_kernel_load.py::test_weekly_load_boundary_085（0.835<0.85） | 通过 |
+| CHK-LOAD-010 | 缺BOM特征参数的工序自动提示"缺特征参数"，需在所属级别核算表补录 | V1.6 §八④；§五 5.4 | 缺参工序输出提示文案 | tests/mps/test_kernel_calc.py::test_warnings_happy_missing_and_no_wc | 通过 |
+| CHK-CALC-004 | 数据流联动：上游参数（产线工序主数据/核算数据库/逻辑底表/参数表）修改后，下游（清单/周计划）指标自动刷新；以工艺代号为主键一次维护、全表联动 | V1.6 §一/§八（参数维护职责与数据流，表格5） | 修改工序主数据后，清单周期/通量/周负荷按链联动重算 | tests/mps/test_kernel_context.py::test_chk_calc_004_data_flow_linkage | 通过 |
+| CHK-CYCLE-009A | 疑点·爬坡触发口径A：新品首产/停线复线/工艺变更首件三类事件均触发（V1.6 §三/§六、V1.7 逻辑⑦；参数 ramp_trigger 档一） | V1.6 §三/§六；V1.7 逻辑⑦；样本字段「是否首单/复线/变更首件」 | 首单/复线/变更首件均加爬坡时间；常规滚动订单=0 | tests/mps/test_kernel_calc.py::test_chk_cycle_006_007_ramp、test_chk_cycle_009_ramp_trigger_variants | 阻塞(疑点·双档已实现) |
+| CHK-CYCLE-009B | 疑点·爬坡触发口径B：仅首单触发（V1.7 计算器口径"事件触发：仅首单启用，常规/加急取0"） | V1.7 §六（批量装配周期计算器爬坡行） | 仅首单加爬坡时间；复线/变更首件取0 | tests/mps/test_kernel_calc.py::test_chk_cycle_009b_first_only_trigger | 阻塞(疑点·双档已实现) |
+| CHK-FLUX-016A | 疑点·BOM特征数据源A：工单行（样本24列逐单携带 N_b~N_a 与胶水/引线类型数；设计规格 D13 首版存工单行） | 样本24列字段；设计规格 D13/§4 order | 特征从工单行读取，缺列时才提示缺参 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery（特征读自工单行） | 阻塞(疑点·按工单行实现) |
+| CHK-FLUX-016B | 疑点·BOM特征数据源B：采集表（V1.6 §5.3/表格5、V1.7 逻辑注：特征按产品级别录入●装配周期核算表，工单行不携带） | V1.6 §5.3（表格5）；V1.7 逻辑注（"缺BOM特征参数"提示） | 特征从采集表按产品匹配，未录工序提示「缺BOM特征参数」 | —（采集表数据源未实现；后续可加产品特征主档） | 阻塞(疑点·待后续) |
+| CHK-FLUX-017 | 第2组特征列：N_die-2/DB第2组胶水类型数/N_wire-2/WB第2组引线类型数随工单行导入，按组折算（Y_die2/Y_wire2；M10-POP 等双组工艺） | 计划1 Task6 FEATURE_MAP/FEATURE_FIELDS（特征别名表） | 双组特征各自参与对应组通量折算 | tests/mps/test_kernel_units.py::test_conv_factor_db_wb、test_conv_factor_wb_second_group_and_default | 通过 |
 | CHK-PRIO-001 | 排产优先级字段：整数、数字越小越优先、0=置顶（样本第10列「排产优先级(数字越小越优先)」→ order.priority） | 样本24列；设计规格 §4 order | 数值升序可比较；0 视为置顶 | tests/mps/test_kernel_prio.py::test_chk_prio_001_priority_numeric_order | 待实现 |
 | CHK-PRIO-002 | 物料齐套时间字段：样本第9列 → order.kit_date，作为排产最早开工输入（约束语义见 CHK-SCHED-004） | 样本24列；设计规格 §4 order | 齐套日期正确入库并供排产读取 | tests/mps/test_kernel_prio.py::test_chk_prio_002_kitting_date_field | 待实现 |
 | CHK-PRIO-003 | 优先级引擎 6 因子评分：自动计算 prio_score（1:1 移植 mps-web priority.js） | 设计规格 D8/§3；计划1 order 模型字段 | 评分字段生成且可复算 | tests/mps/test_kernel_prio.py::test_chk_prio_003_six_factor_score | 待实现 |
