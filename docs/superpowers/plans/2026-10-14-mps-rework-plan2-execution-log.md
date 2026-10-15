@@ -55,3 +55,10 @@
 ```powershell
 & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -v
 ```
+
+## 五、Task 6 收尾记录（2026-10-14）
+
+- engine.js 逐段对照（周期/通量/交付）：周期段（js 86-99）与交付段默认档（js 148-156）逐行等价；通量段（js 120-140）等价，差异均为记录化扩展（wb_auto_flux_override、pick_mode 按名称分流、buffer/latest_start_date/ramp 三档），未发现未文档化偏差。
+- 全量回归：105 passed, 1 skipped
+- 清单穷尽性：CALC/CYCLE/YIELD/FLUX/DELIVERY/LOAD 共 59 条（73 处测试引用经 `pytest --collect-only` 核对全部存在；DELIVERY-007/FLUX-016B 为预期未实现项）
+- 遗留：ramp_flux_factor 集成调用点（计划3/5）；order 优先级透传字段（计划3确认）
