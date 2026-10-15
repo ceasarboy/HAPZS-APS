@@ -410,6 +410,39 @@ def evaluate(order, calc, cfg=None, today=None) -> dict:
 - Modify: `backend/tests/mps/test_kernel_calc.py`（追加透传测试）
 - Modify: `docs/superpowers/plans/2026-10-14-mps-rework-plan2-calc-kernel.md`（kernel 代码块与差异清单镜像同步）
 
+- [ ] **Step 3.0: 评审跟进修正（Task 1+2 遗留，随本任务落地）**
+
+1. `app/mps/dates.py`：`to_date` 增加 datetime 分支（datetime 是 date 子类），顶部 `from datetime import date, datetime`：
+```python
+    if isinstance(s, datetime):
+        return s.date()
+    if isinstance(s, date):
+        return s
+```
+   docstring 补记：`to_date("20260102")` 在 Py3.13 被 fromisoformat 接受（JS 正则拒绝）——畸形输入微差；并增加公开别名 `js_round = _js_round  # 公开别名（priority/strategy 复用）`。
+2. `test_mps_dates.py` 追加：
+```python
+def test_datetime_inputs_normalized():
+    from datetime import datetime
+
+    dt = datetime(2026, 1, 2, 3, 4, 5)
+    assert to_date(dt).isoformat() == "2026-01-02"
+    assert to_str(to_date(dt)) == "2026-01-02"
+    assert add_days(dt, 1) == "2026-01-03"
+    assert diff_days(dt, "2026-01-05") == 3
+```
+3. `app/mps/priority.py`：顶部 `from datetime import date`，`evaluate` 内联 `__import__("datetime")` 改 `date.today()`；`_js_round` 改从 dates 导入（`from app.mps.dates import js_round as _js_round`，替换本地定义）；`bottleneck_rate` 的 `_num(bn.get("throughput"), 1)` 加注释"守卫下不可达，防御性"；`score_factors` docstring 补一行"因子键名 U/B/…/deliveryDays/latestStart/isFirst 与 priority.js 一一对应，勿改 snake_case"。
+4. `test_mps_priority.py` 追加：
+```python
+def test_evaluate_literal_and_bool_num():
+    from app.mps.priority import _num
+
+    ev = evaluate({"due_date": "2026-06-10", "kit_date": "2026-06-01", "order_type": "常规"},
+                  _calc(delivery_days=17.0), cfg_of({}), "2026-06-01")
+    assert ev["score"] == 74.9 and ev["level"] == "P1" and ev["priority"] == 150
+    assert _num(True, 0) == 1.0 and _num(False, 7) == 0.0     # kernel 置顶 bool 透传承重点
+```
+
 - [ ] **Step 3.1: 追加失败测试**
 
 `test_mps_priority.py` 追加：
@@ -520,6 +553,12 @@ def test_order_priority_passthrough():
     # 缺省：prio_source=auto、pinned=False、sort_no=None
     o2 = calc_order(_order(), _ctx_m02_2d())["order"]
     assert o2["prio_source"] == "auto" and o2["pinned"] is False and o2["sort_no"] is None
+    # datetime 归一化：pinned_at 始终为 'YYYY-MM-DD' 字符串（cmp 键依赖字符串比较）
+    from datetime import datetime
+
+    o3 = _order()
+    o3["pinned_at"] = datetime(2026, 10, 1, 8, 0)
+    assert calc_order(o3, _ctx_m02_2d())["order"]["pinned_at"] == "2026-10-01"
 ```
 
 - [ ] **Step 3.2: 运行确认失败** → 缺函数/字段
@@ -676,7 +715,18 @@ def reorder_target(order, prev, next_, to_pinned) -> dict:
 
 - [ ] **Step 3.4: kernel.py 透传字段（+ 计划 2 镜像同步）**
 
-`kernel.calc_order` 的 return 中 `"order"` 块改为（在原字段基础上追加；对齐 engine.js:163-171 + 本模型扩展）：
+`kernel.calc_order` 的 return 中 `"order"` 块改为（在原字段基础上追加；对齐 engine.js:163-171 + 本模型扩展）；同时新增 `_fmt_dt` 帮助函数（放在 `_parse_due` 附近）保证 `pinned_at` 恒为 `'YYYY-MM-DD'` 字符串（cmp 键依赖字符串比较，禁止 datetime 直通）：
+```python
+def _fmt_dt(v) -> str:
+    """datetime/date → 'YYYY-MM-DD'；其它值原样或空串（pinned_at 排序键依赖字符串比较）。"""
+    from datetime import date, datetime
+
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    return v or ""
+```
 ```python
         "order": {
             "id": order.get("id"), "order_no": order.get("order_no"), "product": order.get("product"),
@@ -686,7 +736,7 @@ def reorder_target(order, prev, next_, to_pinned) -> dict:
             "priority": order.get("priority"), "remark": order.get("remark"),
             "prio_level": order.get("prio_level") or "", "prio_score": order.get("prio_score"),
             "prio_source": order.get("prio_source") or "auto", "prio_manual": order.get("prio_manual"),
-            "pinned": bool(order.get("pinned")), "pinned_at": order.get("pinned_at") or "",
+            "pinned": bool(order.get("pinned")), "pinned_at": _fmt_dt(order.get("pinned_at")),
             "sort_no": order.get("sort_no"), "status": order.get("status") or "正常",
         },
 ```
