@@ -21,8 +21,8 @@ def _fixture():
              "from": "2026-06-12", "to": "2026-06-18", "busy_days": 6},
         ]},
     }]
-    ledger = {"模块级|DB|自动DB": [{"used": 5738.18, "slots": []}] * 11 + [],
-              "模块级|WB|自动WB": [{"used": 0, "slots": []}] * 17}
+    ledger = {"模块级|DB|自动DB": [{"used": 5738.18, "slots": []} for _ in range(11)],
+              "模块级|WB|自动WB": [{"used": 0, "slots": []} for _ in range(17)]}
     flux_of = {"模块级|DB|自动DB": 6000, "模块级|WB|自动WB": 12000}
     return planned, ledger, flux_of
 
@@ -46,3 +46,41 @@ def test_build_kanban_overload_and_filters():
     kb2 = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "2026-06-02", "level": "组件级"})
     assert kb2["tasks"] == [] and kb2["summary"]["task_count"] == 0
     assert kb["filters"]["levels"] == ["模块级"] and kb["groups"][0]["res"] == "模块级|DB|自动DB"
+
+
+def test_build_kanban_invalid_date_shape():
+    planned, ledger, flux_of = _fixture()
+    bad = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "not-a-date"})
+    assert bad["ok"] is False and bad["error"] == "查询日期无效"
+    assert "groups" not in bad                                   # 错误分支不含 groups（JS 同构）
+    assert bad["tasks"] == [] and bad["filters"] == {"levels": [], "ops": [], "modes": []}
+
+
+def test_build_kanban_negative_qidx_guard():
+    planned, ledger, flux_of = _fixture()
+    planned[0]["gantt"]["bars"][0]["from"] = "2026-05-31"        # di=-1，命中 qIdx=-1
+    ledger["模块级|DB|自动DB"][-1] = {"used": 9999.0, "slots": []}
+    kb = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "2026-05-31"})
+    t = kb["tasks"][0]
+    assert t["used"] == 0.0 and t["load_rate"] == 0.0            # 守卫：JS undefined→0，非负索引绕尾
+
+
+def test_build_kanban_status_ladder_and_setup_excluded():
+    planned, ledger, flux_of = _fixture()
+    planned[0]["order"].pop("kit_date")                          # 缺料
+    planned[0]["plan"]["judge"] = "延期"
+    ledger["模块级|DB|自动DB"][1] = {"used": 7000, "slots": []}  # 超负荷
+    planned[0]["gantt"]["bars"].append(
+        {"kind": "setup", "seq": 1.5, "step_std": "DB", "res": "模块级|DB|自动DB",
+         "from": "2026-06-01", "to": "2026-06-02", "busy_days": 1})
+    kb = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "2026-06-02"})
+    t = kb["tasks"][0]
+    assert kb["summary"]["task_count"] == 1                      # setup 条不展开为任务
+    assert t["status"] == "超负荷" and t["warnings"] == ["超负荷", "延期", "缺料"]
+    assert kb["summary"]["overload_count"] == 1
+    assert kb["summary"]["delayed_count"] == 1 and kb["summary"]["material_count"] == 1
+    # flux 缺失（账本有键、fluxOf 无）→ load_rate None、不判超负荷
+    planned2, ledger2, flux_of2 = _fixture()
+    flux_of2.pop("模块级|DB|自动DB")
+    kb2 = build_kanban(planned2, ledger2, flux_of2, {"base_date": "2026-06-01", "date": "2026-06-02"})
+    assert kb2["tasks"][0]["load_rate"] is None and kb2["tasks"][0]["status"] == "正常"

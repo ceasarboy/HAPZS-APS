@@ -670,6 +670,8 @@ def merge_manual_bars(calc_result, manual_ops: list[dict], ctx: dict) -> list[di
 
 ```python
 """日任务看板（kanban.js 移植）：任务展开/筛选/状态分级/汇总。"""
+import pytest
+
 from app.mps.kanban import build_kanban, parse_res
 
 
@@ -690,8 +692,8 @@ def _fixture():
              "from": "2026-06-12", "to": "2026-06-18", "busy_days": 6},
         ]},
     }]
-    ledger = {"模块级|DB|自动DB": [{"used": 5738.18, "slots": []}] * 11 + [],
-              "模块级|WB|自动WB": [{"used": 0, "slots": []}] * 17}
+    ledger = {"模块级|DB|自动DB": [{"used": 5738.18, "slots": []} for _ in range(11)],
+              "模块级|WB|自动WB": [{"used": 0, "slots": []} for _ in range(17)]}
     flux_of = {"模块级|DB|自动DB": 6000, "模块级|WB|自动WB": 12000}
     return planned, ledger, flux_of
 
@@ -715,15 +717,51 @@ def test_build_kanban_overload_and_filters():
     kb2 = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "2026-06-02", "level": "组件级"})
     assert kb2["tasks"] == [] and kb2["summary"]["task_count"] == 0
     assert kb["filters"]["levels"] == ["模块级"] and kb["groups"][0]["res"] == "模块级|DB|自动DB"
-```
 
-**注意**：测试顶部需 `import pytest`。
+
+def test_build_kanban_invalid_date_shape():
+    planned, ledger, flux_of = _fixture()
+    bad = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "not-a-date"})
+    assert bad["ok"] is False and bad["error"] == "查询日期无效"
+    assert "groups" not in bad                                   # 错误分支不含 groups（JS 同构）
+    assert bad["tasks"] == [] and bad["filters"] == {"levels": [], "ops": [], "modes": []}
+
+
+def test_build_kanban_negative_qidx_guard():
+    planned, ledger, flux_of = _fixture()
+    planned[0]["gantt"]["bars"][0]["from"] = "2026-05-31"        # di=-1，命中 qIdx=-1
+    ledger["模块级|DB|自动DB"][-1] = {"used": 9999.0, "slots": []}
+    kb = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "2026-05-31"})
+    t = kb["tasks"][0]
+    assert t["used"] == 0.0 and t["load_rate"] == 0.0            # 守卫：JS undefined→0，非负索引绕尾
+
+
+def test_build_kanban_status_ladder_and_setup_excluded():
+    planned, ledger, flux_of = _fixture()
+    planned[0]["order"].pop("kit_date")                          # 缺料
+    planned[0]["plan"]["judge"] = "延期"
+    ledger["模块级|DB|自动DB"][1] = {"used": 7000, "slots": []}  # 超负荷
+    planned[0]["gantt"]["bars"].append(
+        {"kind": "setup", "seq": 1.5, "step_std": "DB", "res": "模块级|DB|自动DB",
+         "from": "2026-06-01", "to": "2026-06-02", "busy_days": 1})
+    kb = build_kanban(planned, ledger, flux_of, {"base_date": "2026-06-01", "date": "2026-06-02"})
+    t = kb["tasks"][0]
+    assert kb["summary"]["task_count"] == 1                      # setup 条不展开为任务
+    assert t["status"] == "超负荷" and t["warnings"] == ["超负荷", "延期", "缺料"]
+    assert kb["summary"]["overload_count"] == 1
+    assert kb["summary"]["delayed_count"] == 1 and kb["summary"]["material_count"] == 1
+    # flux 缺失（账本有键、fluxOf 无）→ load_rate None、不判超负荷
+    planned2, ledger2, flux_of2 = _fixture()
+    flux_of2.pop("模块级|DB|自动DB")
+    kb2 = build_kanban(planned2, ledger2, flux_of2, {"base_date": "2026-06-01", "date": "2026-06-02"})
+    assert kb2["tasks"][0]["load_rate"] is None and kb2["tasks"][0]["status"] == "正常"
+```
 
 - [ ] **Step 4.2: 运行确认失败**
 
 - [ ] **Step 4.3: 创建 `backend/app/mps/kanban.py`**（按 `kanban.js` 121 行逐字移植：`parse_res`、`build_kanban`（任务展开/筛选/状态优先级 超负荷>延期>缺料>正常/汇总/分组排序 `max_load_rate` 降序）、`_empty_summary`）
 
-- [ ] **Step 4.4: 运行确认通过**（预期 3 passed；`test_build_kanban_tasks_and_status` 的高负荷日需按 `qIdx` 命中 day1——执行者按日期窗口核对）
+- [ ] **Step 4.4: 运行确认通过**（预期 6 passed（本文件）、全量 166 passed, 1 skipped）
 - [ ] **Step 4.5: 提交** `feat(mps): 日任务看板移植（kanban）`
 
 ---
@@ -731,7 +769,7 @@ def test_build_kanban_overload_and_filters():
 ### Task 5: 3B1 收尾（对照抽查 + 执行记录）
 
 - [ ] **Step 5.1: 对照抽查**：`schedule.py` ↔ `schedule.js` 挑三段（alloc_earliest 207-243、schedule_process_constrained 250-370、gantt_chart 436-481）逐行核对；`operations.py` 为扩展模块（对照设计 D12 检查语义）；`kanban.py` ↔ kanban.js 全量核对。报告结论。
-- [ ] **Step 5.2: 全量回归**（预期 163 passed, 1 skipped）
+- [ ] **Step 5.2: 全量回归**（预期 166 passed, 1 skipped）
 - [ ] **Step 5.3: 执行记录**：更新计划 3 执行记录（3B1 节：摘要/决策/教训；SCHED 清单回写统一留待 3B2 收尾）并提交。
 
 ---
@@ -740,7 +778,7 @@ def test_build_kanban_overload_and_filters():
 
 1. `schedule.py`（解码器 + 甘特）与 `schedule.js` 逐段对齐（Task 5 抽查）；`operations.py`/`kanban.py` 就绪；
 2. SCHED-001/002/003/004/005/006/007/008/009 测试全绿；
-3. 全量测试绿灯（163 passed, 1 skipped）；每任务独立提交。
+3. 全量测试绿灯（166 passed, 1 skipped）；每任务独立提交。
 
 ## 后续衔接（3B2）
 

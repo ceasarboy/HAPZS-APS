@@ -12,6 +12,7 @@ micro 差异（对齐 JS 语义）：
    故显式守卫 `0 <= q_idx < len(rows)`；
  - base 缺省 `date.today()`（本地时区）vs JS `new Date().toISOString()`（UTC）——跨日边界微差；
  - groups 平局按 op 码点序（JS localeCompare 依赖语言环境，中文下可能不同）。
+ - 错误分支（无效日期）返回 {base_date, query_date, ok: False, error, tasks, summary, filters}，不含 groups（JS 同构；消费方需空值防护）。
 """
 from datetime import date
 
@@ -89,6 +90,7 @@ def build_kanban(planned, ledger, flux_of, opts=None):
                 warnings.append("延期")
             if material:
                 warnings.append("缺料")
+            # 状态梯：超负荷 > 延期 > 缺料 > 正常
             status = "超负荷" if overload else "延期" if delayed else "缺料" if material else "正常"
 
             tasks.append({
