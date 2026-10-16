@@ -29,9 +29,21 @@ def decompose(calc_result) -> list[dict]:
 
 
 async def sync_order_operations(session: AsyncSession, order_id: str, calc_result) -> int:
-    """重建该单自动工序需求（manual 行保留），返回插入行数。"""
+    """重建该单自动工序需求（manual 行保留），返回插入行数。
+
+    3B2 修复：重建前快照 manual 行 depends_on_id 指向旧行的 seq，重建后按 seq 映射到新自动行 id；
+    旧目标不存在（路线变更等）→ 置 None（避免悬挂）。罕见的手工→手工依赖会清空（按需再挂）。
+    """
     if calc_result.get("error") or "steps" not in calc_result:
         raise ValueError("calc_result 无效（含 error 或缺少 steps），拒绝重建工序需求")
+    old_rows = (await session.execute(
+        select(OrderOperation.id, OrderOperation.seq)
+        .where(OrderOperation.order_id == order_id))).all()
+    seq_by_id = {r.id: r.seq for r in old_rows}
+    manuals = (await session.execute(
+        select(OrderOperation).where(OrderOperation.order_id == order_id,
+                                     OrderOperation.source == "manual"))).scalars().all()
+    manual_target_seq = {m.id: seq_by_id.get(m.depends_on_id) for m in manuals if m.depends_on_id}
     await session.execute(
         delete(OrderOperation).where(OrderOperation.order_id == order_id, OrderOperation.source == "auto"))
     rows = decompose(calc_result)
@@ -46,6 +58,10 @@ async def sync_order_operations(session: AsyncSession, order_id: str, calc_resul
         by_seq[row["seq"]] = op.id
         if row["depends_on_seq"] is not None:
             op.depends_on_id = by_seq.get(row["depends_on_seq"])
+    for m in manuals:
+        tgt = manual_target_seq.get(m.id)
+        if tgt is not None:
+            m.depends_on_id = by_seq.get(tgt)
     await session.commit()
     return len(rows)
 

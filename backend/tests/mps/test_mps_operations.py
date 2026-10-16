@@ -97,3 +97,27 @@ def test_merge_manual_explicit_mode_flux():
     merged2 = merge_manual_bars(
         r, [{"after_seq": 1, "level": "模块级", "op": "DB", "mode": "不存在档", "usage": 1}], ctx)
     assert merged2[-1]["flux"] is None                         # 无匹配 → 解码护栏口径
+
+
+async def test_sync_rehang_manual_dependency(sqlite_session):
+    """重同步后手工行依赖重挂到新自动行（3B2 修复；修复前指向已删除旧行=悬挂，探针实证）。"""
+    r, _ = _calc_pair()
+    o = Order(order_no="O-3", product="P", code="M02-2D", qty=100, features={"N_die": 60, "N_wire": 60})
+    sqlite_session.add(o)
+    await sqlite_session.commit()
+    await sync_order_operations(sqlite_session, o.id, r)
+    await add_manual_operation(sqlite_session, o.id, level="模块级", op="调试", mode=None,
+                               qty=1052, usage=1, after_seq=2, note="返工调试")
+    rows1 = (await sqlite_session.execute(
+        select(OrderOperation).order_by(OrderOperation.seq))).scalars().all()
+    manual1 = rows1[-1]
+    assert manual1.seq == 3 and manual1.source == "manual"
+    assert manual1.depends_on_id == rows1[1].id            # 挂在 seq=2 自动行之后
+    old_seq2_id = rows1[1].id
+    await sync_order_operations(sqlite_session, o.id, r)   # 重同步：auto 删除重建
+    rows2 = (await sqlite_session.execute(
+        select(OrderOperation).order_by(OrderOperation.seq))).scalars().all()
+    manual2 = rows2[-1]
+    assert manual2.source == "manual" and manual2.seq == 3
+    assert manual2.depends_on_id == rows2[1].id            # 重挂到新 seq=2 自动行
+    assert manual2.depends_on_id != old_seq2_id
