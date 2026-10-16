@@ -2,11 +2,13 @@
 
 - alloc_earliest：按日产能账本找"最早可排时段"（整批占用、顺延、可选 nooverlap）
 - op_work：单工单在资源上的工作量（特征量）；含 [扩展] 手工追加条（返工/试制）
-- 与 JS 的已知微观差异：页码扫描上限同 3650；`Math.floor(from)||0` → `max(0, int(from))`。
+- 与 JS 的已知微观差异：顺延扫描上限同 3650；`Math.floor(from)||0` → `max(0, int(from_) or 0)`
+  （None/NaN 时 JS 归 0、Python 抛错，真实调用方均为数值）；subpart 分支对缺失 process
+  防御性兜底（JS 直接抛错）；nooverlap 判别为 JS 同源死分支（day_free 恒 > i，保留同构）。
 """
-from datetime import date
+from datetime import date  # noqa: F401（第二批基日缺省用）
 
-from app.mps import priority as prio   # noqa: F401（资源键/排序由第二批使用）
+from app.mps import priority as prio  # noqa: F401（JS 同源占位，上游亦未使用；保留同构）
 from app.mps.dates import add_days, diff_days, to_str  # noqa: F401
 from app.mps.kernel import ceil_int, nz
 
@@ -32,7 +34,7 @@ def resource_key(r, bar):
     return f"{step['level']}|{step['step_std']}|{step['mode']}"
 
 
-op_key = resource_key  # 与 JS 两份同构函数等价
+op_key = resource_key  # 与 JS 两份同构函数等价（上游亦无调用方，保留同构占位）
 
 
 def op_work(r, bar):
@@ -76,6 +78,7 @@ def alloc_earliest(ledger: dict, key: str, from_, amt, flux, policy=None) -> dic
         for i in range(start, start + day_needed):
             if rows[i]["used"] + daily > flux + 1e-9:
                 return False
+            # JS 同源死分支（day_free 恒 > i，保留同构）
             if policy == "nooverlap" and day_free(i) <= i:
                 return False
         return True

@@ -27,16 +27,20 @@ def test_alloc_earliest_scan_gap_and_capacity_fit():
     alloc_earliest(ledger, "R1", 0, 6000, 6000)          # day0 满
     c = alloc_earliest(ledger, "R1", 0, 6000, 6000)      # 应顺延到 day1
     assert c["start"] == 1 and c["end"] == 2
-    # 单日容量刚好：floor 容差（1e-9）
-    d = alloc_earliest(ledger, "R2", 0, 2000 * 0.1, 2000)
-    assert d["dayNeeded"] == 1
+    # ceil 容差（1e-9）：微超可忽略，naive ceil 会误判为 4 天
+    d = alloc_earliest(ledger, "R2", 0, 3 * 6000 + 1e-6, 6000)
+    assert d["dayNeeded"] == 3
 
 
 def test_alloc_earliest_nooverlap_policy():
     ledger = {}
     a = alloc_earliest(ledger, "R1", 0, 3000, 3000, policy="nooverlap")
+    assert ledger["R1"][0]["slots"] == [1]            # nooverlap 记录占用区间端点
     b = alloc_earliest(ledger, "R1", 0, 3000, 3000, policy="nooverlap")
-    assert b["start"] >= a["end"]                        # 同单其它工序重叠被禁止（跨单由 used 约束）
+    assert b["start"] >= a["end"]                     # 容量打满顺延（slots 同步记录）
+    assert ledger["R1"][1]["slots"] == [2]
+    alloc_earliest(ledger, "R2", 0, 3000, 3000)       # 默认策略不记 slots
+    assert ledger["R2"][0]["slots"] == []
 
 
 def test_alloc_earliest_zero_amount():
