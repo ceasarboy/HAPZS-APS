@@ -9,7 +9,9 @@
   grow 6.3e13 行挂死；此处跳过产能分配、记 warnings 并继续。
 - 与 JS 的已知微观差异：顺延扫描上限同 3650；`Math.floor(from)||0` → `max(0, int(from_) or 0)`
   （None/NaN 时 JS 归 0、Python 抛错，真实调用方均为数值）；subpart 分支对缺失 process
-  防御性兜底（JS 直接抛错）；nooverlap 判别为 JS 同源死分支（day_free 恒 > i，保留同构）。
+  防御性兜底（JS 直接抛错）；nooverlap 判别为 JS 同源死分支（day_free 恒 > i，保留同构）；
+  `sequenceOrder: []` 空数组时 Python 走策略排序、JS 保原序（调用方不传空数组）；
+  base 缺省 `date.today()`（本地时区）vs JS UTC。
 - 与 JS 的已知行为偏差（计划 3B1 Task2 留痕）：
   ① kit_adjusted 取 kit_offset > 0（分配已强制 start ≥ kit；JS `diffDays(start, kit) < 0`
      为边界死分支恒假，齐套门槛实际生效时也应标注调整）；
@@ -184,6 +186,7 @@ def schedule_process_constrained(results, base, opts=None) -> dict:
                     from_ = req
             alloc = alloc_earliest(ledger, w["key"], from_, w["amt"], w["flux"], alloc_policy)
             # 排产理由：实际分配起点晚于「最早可行起点」→ 被产能约束整批顺延
+            # （换型引起的顺延亦沿用产能文案，JS 同条件同文案，勿修）
             if not deferred_note and alloc["start"] > base_from + 1e-9:
                 step_label = "/".join(str(w["key"]).split("|")[1:])
                 deferred_note = f"因 {step_label} 产能已满，整批顺延至 {add_days(start0, alloc['start'])}"
@@ -196,13 +199,13 @@ def schedule_process_constrained(results, base, opts=None) -> dict:
             last_family[w["key"]] = fam
             last_end[w["key"]] = alloc["end"]
 
-        # 计划开工 = 首道有实际分配的工序起点（护栏跳过的条无 from；全无则回退 base）
+        # 计划开工 = 首道有实际分配的工序起点（护栏跳过的条无 from；全无则回退 add_days(base, kit_offset)，JS 口径）
         first_start = None
         for b in r["gantt"]["bars"]:
             if b.get("kind") in ("subpart", "step") and b.get("from"):
                 if first_start is None or b["from"] < first_start:
                     first_start = b["from"]
-        start = first_start or start0
+        start = first_start or add_days(start0, kit_offset)
 
         batch = r["batch"]["batch_cycle"]
         # 完工 = 末道工序实际产能占用结束日（顺延后可能晚于 start+batch）
@@ -298,6 +301,7 @@ def schedule(results, opts=None) -> list:
                     cand_end = add_days(start_iso, bar["earliest_start"] + bar["busy_days"])
                     need = min(iv["from"], cand_end) < max(iv["to"], add_days(start_iso, bar["earliest_start"]))
                     if need:
+                        # JS 同源已知行为（多区间命中时 start 可被回拉），勿修
                         start_iso = add_days(iv["to"], -bar["earliest_start"])
                 # 换型约束：同资源工艺族切换需插入换型时间（序列依赖）
                 if opts.get("setup") and fam and last_family.get(key) is not None and last_family.get(key) != fam:

@@ -1,6 +1,7 @@
-"""排产解码①：alloc_earliest 账本语义 / op_work（含手工条扩展）。"""
+"""排产解码移植测试（① 账本分配/opWork；② 定序排产/甘特/护栏）。"""
 import pytest
 
+from app.mps.dates import diff_days
 from app.mps.schedule import alloc_earliest, op_work, order_opts, resource_key
 
 
@@ -109,7 +110,8 @@ def _mk_results():
         {"order_no": "B", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
          "water_vapor": "有", "qty": 5, "priority": 200, "features": {"N_die": 60, "N_wire": 60}},
         {"order_no": "A", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
-         "water_vapor": "有", "qty": 1000, "priority": 100, "features": {"N_die": 60, "N_wire": 60}},
+         "water_vapor": "有", "qty": 1000, "priority": 100, "due_date": "2026-09-30",
+         "features": {"N_die": 60, "N_wire": 60}},
     ]
     return [calc_order(o, ctx) for o in orders], ctx
 
@@ -150,6 +152,11 @@ def test_schedule_process_constrained_full_contract():
     assert a_db["from"] == "2026-06-01" and a_db["busy_days"] == 11
     # 计划字段
     assert planned[1]["plan"]["start_date"] == "2026-06-01"
+    # SCHED-009 附属：due 链（gap/judge/最新投料）自洽
+    p1 = planned[1]["plan"]
+    assert p1["judge"] == "满足" and p1["start_date"] < p1["latest_start_date"]
+    assert p1["gap_days"] == diff_days(p1["deliver_date"], "2026-09-30")
+    assert planned[0]["plan"]["gap_days"] is None          # B 无交期
     assert out["strategy"]["id"] in ("priority", "due", "util", "setup", "bottleneck")
 
 
@@ -177,6 +184,10 @@ def test_sched_009_strategy_order_and_deterministic():
     assert out["strategy"]["id"] == "priority"
     out2 = schedule_process_constrained(results, "2026-06-01", {"strategy": "due"})
     assert out2["strategy"]["id"] == "due"
+    r3, _ = _mk_results()
+    out3 = schedule_process_constrained(r3, "2026-06-01", {})
+    assert [r["order"]["order_no"] for r in out3["planned"]] == \
+           [r["order"]["order_no"] for r in out["planned"]]      # 确定性
 
 
 def test_sched_005_subpart_and_gantt_chart():
@@ -193,6 +204,8 @@ def test_sched_005_subpart_and_gantt_chart():
     lane = gantt["lanes"][0]
     sub = next(b for b in lane["bars"] if b["kind"] == "subpart")
     assert sub["res"] == "前置分部件|M02-2D" and sub["from"] == "2026-06-01"
+    first_step = next(b for b in lane["bars"] if b["kind"] == "step")
+    assert sub["to"] <= first_step["from"]                # 前置条先于主体
     assert gantt["horizon_days"] >= 1
 
 
@@ -217,6 +230,7 @@ def test_sched_007_setup_days():
     assert b2_db["setup_days"] == 2.0
     assert b2_db["from"] == "2026-06-04"
     assert out["capViolations"] == []
+    assert "顺延" in b2["plan"]["rationale"]
 
 
 def test_missing_wc_flux_guard():

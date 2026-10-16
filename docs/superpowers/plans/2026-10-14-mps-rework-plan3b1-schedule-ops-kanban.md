@@ -12,7 +12,7 @@
 
 **check-list 覆盖（3B1 负责）：** CHK-SCHED-001/002/003/004/005/007/008/009 的实现与测试（SCHED-006 在 Task 3；SCHED-010 归 3B2；清单回写统一在 3B2 收尾）。
 
-**结果契约（3B2/看板消费）：** 解码后每条结果追加/更新：`plan{start_date,finish_date,deliver_date,latest_start_date,gap_days,judge,kit_date,kit_adjusted,kit_note,kit_risk,resource_constrained,strategy_id,strategy_name,rationale}`；`gantt.bars[].{from,to,busy_days,setup_days,res}`；返回 `{planned, ledger, capViolations, fluxOf, strategy}`。
+**结果契约（3B2/看板消费）：** 解码后每条结果追加/更新：`plan{start_date,finish_date,deliver_date,latest_start_date,gap_days,judge,kit_date,kit_adjusted,kit_note,kit_risk,resource_constrained,strategy_id,strategy_name,rationale}`；`gantt.bars[].{from,to,busy_days,setup_days,res}`；返回 `{planned, ledger, capViolations, fluxOf, warnings, strategy}`。
 
 ---
 
@@ -257,7 +257,8 @@ def _mk_results():
         {"order_no": "B", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
          "water_vapor": "有", "qty": 5, "priority": 200, "features": {"N_die": 60, "N_wire": 60}},
         {"order_no": "A", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
-         "water_vapor": "有", "qty": 1000, "priority": 100, "features": {"N_die": 60, "N_wire": 60}},
+         "water_vapor": "有", "qty": 1000, "priority": 100, "due_date": "2026-09-30",
+         "features": {"N_die": 60, "N_wire": 60}},
     ]
     return [calc_order(o, ctx) for o in orders], ctx
 
@@ -298,6 +299,11 @@ def test_schedule_process_constrained_full_contract():
     assert a_db["from"] == "2026-06-01" and a_db["busy_days"] == 11
     # 计划字段
     assert planned[1]["plan"]["start_date"] == "2026-06-01"
+    # SCHED-009 附属：due 链（gap/judge/最新投料）自洽
+    p1 = planned[1]["plan"]
+    assert p1["judge"] == "满足" and p1["start_date"] < p1["latest_start_date"]
+    assert p1["gap_days"] == diff_days(p1["deliver_date"], "2026-09-30")
+    assert planned[0]["plan"]["gap_days"] is None          # B 无交期
     assert out["strategy"]["id"] in ("priority", "due", "util", "setup", "bottleneck")
 
 
@@ -325,6 +331,10 @@ def test_sched_009_strategy_order_and_deterministic():
     assert out["strategy"]["id"] == "priority"
     out2 = schedule_process_constrained(results, "2026-06-01", {"strategy": "due"})
     assert out2["strategy"]["id"] == "due"
+    r3, _ = _mk_results()
+    out3 = schedule_process_constrained(r3, "2026-06-01", {})
+    assert [r["order"]["order_no"] for r in out3["planned"]] == \
+           [r["order"]["order_no"] for r in out["planned"]]      # 确定性
 
 
 def test_sched_005_subpart_and_gantt_chart():
@@ -341,6 +351,8 @@ def test_sched_005_subpart_and_gantt_chart():
     lane = gantt["lanes"][0]
     sub = next(b for b in lane["bars"] if b["kind"] == "subpart")
     assert sub["res"] == "前置分部件|M02-2D" and sub["from"] == "2026-06-01"
+    first_step = next(b for b in lane["bars"] if b["kind"] == "step")
+    assert sub["to"] <= first_step["from"]                # 前置条先于主体
     assert gantt["horizon_days"] >= 1
 
 
@@ -365,6 +377,7 @@ def test_sched_007_setup_days():
     assert b2_db["setup_days"] == 2.0
     assert b2_db["from"] == "2026-06-04"
     assert out["capViolations"] == []
+    assert "顺延" in b2["plan"]["rationale"]
 
 
 def test_missing_wc_flux_guard():
@@ -378,7 +391,9 @@ def test_missing_wc_flux_guard():
              "water_vapor": "有", "qty": 1000, "features": {"N_die": 60, "N_wire": 60}}
     out = schedule_process_constrained([calc_order(order, ctx2)], "2026-06-01", {})
     assert len(out["warnings"]) == 1                              # 不漫游挂死（否则 grow 6.3e13 行）
-    assert out["warnings"][0]["res"] == "模块级|DB|自动DB"
+    # 修正留痕（2026-10-16，Node 实证）：WC 条目缺失时 kernel 将 step.mode 置 "/"（与 engine.js 一致），
+    # 调度层无 WC 数据可回推模式，护栏资源键只能是 "模块级|DB|/"；原稿预期 "自动DB" 与夹具不自洽
+    assert out["warnings"][0]["res"] == "模块级|DB|/"
     assert out["planned"][0]["order"]["order_no"] == "D"          # 计划仍产出
 ```
 
@@ -397,7 +412,7 @@ def test_missing_wc_flux_guard():
 - `first_start`（含 subpart 条）→ `start`；`last_bar_end` → `finish = add_days(last_bar_end, -1)`（无则 `add_days(start, batch)`）；`deliver/latest/gap/judge/kit_*` 与 `rationale`（js:334-354 文案逐字）；
 - `cap_violations` 核算（js:358-368：对每个 key 取首个含该资源 step 的 planned 行求 flux，逐日核验 `used > flux + 1e-9`）；
 - **护栏 [扩展]（偏离 JS，已留痕）**：`w = op_work(r, bar)`；`if not w: continue`；`if w["flux"] <= 1e-9: warnings.append({"order_no": r["order"]["order_no"], "step": bar.get("step_std"), "res": w["key"], "reason": "缺少工作中心主数据（日产能为 0），已跳过产能分配"}); continue`（否则 `ceil_int(amt/1e-9)` → grow 6.3e13 行挂死；JS 同病）；
-- `first_start`/`finish` 计算仅取有 `from` 的 bar（护栏跳过的条无 from）；无任何 bar 有 from 时回退 `base`；
+- `first_start`/`finish` 计算仅取有 `from` 的 bar（护栏跳过的条无 from）；无任何 bar 有 from 时回退 `add_days(base, kit_offset)`（JS 口径）；
 - 返回 `{"planned": planned, "ledger": ledger, "capViolations": cap_violations, "fluxOf": flux_of, "warnings": warnings, "strategy": {...}}`。
 
 `schedule(results, opts)`（js:72-174）：`capacity` 缺省 True → 返回 `schedule_process_constrained(...)["planned"]`；否则移植非容量时间线分支（timeline 错开、setup 区间、kit 门、plan 字段；理由文案同 js）。
