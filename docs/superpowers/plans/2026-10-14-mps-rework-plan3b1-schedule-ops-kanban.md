@@ -78,7 +78,7 @@ def _ctx_min():
             {"code": "M02-2D", "seq": 1, "step_raw": "DB", "step_std": "DB", "level": "模块级",
              "cycle": 1, "yield_overall": 0.97, "feature": "DB-芯片数N_die", "cf_field": "DB胶水类型Y_die"},
             {"code": "M02-2D", "seq": 2, "step_raw": "WB", "step_std": "WB", "level": "模块级",
-             "cycle": 1, "yield_overall": 0.99, "feature": "WB-键合线数N_wire", "cf_field": "WB引线类型Y_wire"},
+             "cycle": 1, "yield_overall": 0.98, "feature": "WB-键合线数N_wire", "cf_field": "WB引线类型Y_wire"},
         ]},
         "wc_map": {
             "模块级|DB": {"modes": [
@@ -103,6 +103,10 @@ def _calc(qty=1000):
     o = {"order_no": "A", "product": "P", "code": "M02-2D", "order_type": "常规",
          "first_flag": "否", "water_vapor": "有", "qty": qty, "features": {"N_die": 60, "N_wire": 60}}
     return calc_order(o, _ctx_min())
+
+
+# 夹具口径（执行修正留痕 2026-10-14）：2 工序 DB0.97×WB0.98=0.9506 → 放量比≈1.052 → Q=⌈1000×1.05197⌉=1052
+# （原稿 WB=0.99 得 yRatio 0.9603→Q=1042，与全计划 1052 类断言矛盾；已用 Node engine.js 实证并修正）
 
 
 def test_op_work_from_step_and_manual():
