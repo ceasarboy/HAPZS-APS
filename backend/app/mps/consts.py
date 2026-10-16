@@ -31,7 +31,7 @@ FEATURE_MAP: dict[str, list[str]] = {
     "工单产品数量N": [],
 }
 
-# 参数定义（11 项来自 mps-web PARAM_DEFS 核心组；后 5 项为本系统新增/疑点开关）。
+# 参数定义（11 项来自 mps-web PARAM_DEFS 核心组；后 8 项为本系统新增/疑点开关）。
 # 有意延后：mps-web 另有 7 项"排产约束"组参数（day_cap_mode/day_cap_ratio/takt_window/
 # op_lag_days/takt_max_gap/balance_level/missing_reserve_ratio，仅其未接入的 balance.js 使用），
 # 待计划 3 确定均衡/节拍策略时按需补入，并同步参数页（评审记录 2026-10-14）。
@@ -54,4 +54,7 @@ PARAM_DEFS: list[dict] = [
     {"key": "wb_auto_flux_override", "value": "0", "label": "模块级自动WB通量覆盖", "group": "分流", "hint": "根丝/天；0=使用主数据通量；疑点①：逻辑书12000 vs 主数据口径20000，双档测试用 12000/20000"},
     {"key": "round_mode", "value": "ceil", "label": "批量项取整口径", "group": "交付", "hint": "ceil=向上取整（V1.6算例与mps-web口径，M02-2D批量周期16）；exact=不取整（Excel计算器口径15.52）；疑点待业务确认"},
     {"key": "ramp_trigger", "value": "first_flag", "label": "爬坡触发口径", "group": "爬坡", "hint": "first_flag=首单/复线/变更首件触发 / first_only=仅首单 / all=所有订单；疑点④双档：A=first_flag、B=first_only，待业务确认"},
+    {"key": "ga_population", "value": "30", "label": "GA 种群规模", "group": "求解", "hint": "候选解数量下限 2；0 代次仅评估种子"},
+    {"key": "ga_generations", "value": "20", "label": "GA 迭代代数", "group": "求解", "hint": "世代数；0=仅评估初始种群（含种子）"},
+    {"key": "ga_seed", "value": "42", "label": "GA 随机种子", "group": "求解", "hint": "固定随机流复现结果；0=不固定（每次随机）"},
 ]

@@ -13,6 +13,7 @@ _NUMERIC_PARAM_KEYS = (
     "week_days", "peak_factor", "exclude_braze_yield",
     "cf_db_1", "cf_db_2", "cf_db_3", "cf_wb_1", "cf_wb_2", "cf_wb_3",
     "vapor_cap_cut", "order_buffer_days", "reference_batch", "wb_auto_flux_override",
+    "ga_population", "ga_generations", "ga_seed",
 )
 
 _PARAM_DEFAULTS = {d["key"]: d["value"] for d in PARAM_DEFS}
