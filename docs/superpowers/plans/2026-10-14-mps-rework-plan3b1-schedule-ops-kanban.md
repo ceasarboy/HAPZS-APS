@@ -365,9 +365,24 @@ def test_sched_007_setup_days():
     assert b2_db["setup_days"] == 2.0
     assert b2_db["from"] == "2026-06-04"
     assert out["capViolations"] == []
+
+
+def test_missing_wc_flux_guard():
+    """缺 WC 主数据（日产能≈0）→ 跳过产能分配并记 warnings（护栏偏离 JS，已留痕）。"""
+    from app.mps.kernel import calc_order
+    from app.mps.schedule import schedule_process_constrained
+
+    _, ctx = _mk_results()
+    ctx2 = {**ctx, "wc_map": {k: v for k, v in ctx["wc_map"].items() if k != "模块级|DB"}}
+    order = {"order_no": "D", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
+             "water_vapor": "有", "qty": 1000, "features": {"N_die": 60, "N_wire": 60}}
+    out = schedule_process_constrained([calc_order(order, ctx2)], "2026-06-01", {})
+    assert len(out["warnings"]) == 1                              # 不漫游挂死（否则 grow 6.3e13 行）
+    assert out["warnings"][0]["res"] == "模块级|DB|自动DB"
+    assert out["planned"][0]["order"]["order_no"] == "D"          # 计划仍产出
 ```
 
-**注意**：`add_days` 需在测试顶部从 `app.mps.dates` 导入；`test_sched_001_002_008_ledger_and_serial` 中 `schedule()` 返回 `planned` 列表（非容量分支测试见 Step 2.4 追加）。
+**注意**：`schedule()` 返回 `planned` 列表（无容量分支不作为本批测试目标；护栏语义见 Step 2.3）。
 
 - [ ] **Step 2.2: 运行确认失败**
 
@@ -381,13 +396,15 @@ def test_sched_007_setup_days():
 - `bar["from"] = add_days(base, alloc["start"])`、`bar["to"] = add_days(base, alloc["end"])`、`bar["busy_days"] = alloc["span"]`、`bar["setup_days"] = setup_days`、`bar["res"] = w["key"]`；`cursor = alloc["end"]`；`last_family[key] = fam`、`last_end[key] = alloc["end"]`；
 - `first_start`（含 subpart 条）→ `start`；`last_bar_end` → `finish = add_days(last_bar_end, -1)`（无则 `add_days(start, batch)`）；`deliver/latest/gap/judge/kit_*` 与 `rationale`（js:334-354 文案逐字）；
 - `cap_violations` 核算（js:358-368：对每个 key 取首个含该资源 step 的 planned 行求 flux，逐日核验 `used > flux + 1e-9`）；
-- 返回 `{"planned": planned, "ledger": ledger, "capViolations": cap_violations, "fluxOf": flux_of, "strategy": {...}}`。
+- **护栏 [扩展]（偏离 JS，已留痕）**：`w = op_work(r, bar)`；`if not w: continue`；`if w["flux"] <= 1e-9: warnings.append({"order_no": r["order"]["order_no"], "step": bar.get("step_std"), "res": w["key"], "reason": "缺少工作中心主数据（日产能为 0），已跳过产能分配"}); continue`（否则 `ceil_int(amt/1e-9)` → grow 6.3e13 行挂死；JS 同病）；
+- `first_start`/`finish` 计算仅取有 `from` 的 bar（护栏跳过的条无 from）；无任何 bar 有 from 时回退 `base`；
+- 返回 `{"planned": planned, "ledger": ledger, "capViolations": cap_violations, "fluxOf": flux_of, "warnings": warnings, "strategy": {...}}`。
 
 `schedule(results, opts)`（js:72-174）：`capacity` 缺省 True → 返回 `schedule_process_constrained(...)["planned"]`；否则移植非容量时间线分支（timeline 错开、setup 区间、kit 门、plan 字段；理由文案同 js）。
 
 `gantt_chart(results, opts)`（js:436-481）：逐字移植（lanes/bars 含 setup 条、horizon 计算 `max(1, need + 2)`；`res` 回退 `bar.get("res") or resource_key(r, b)`）。
 
-- [ ] **Step 2.4: 运行确认通过**（预期 6 passed；全量 152 passed, 1 skipped。手算基准：B（5 只）走半自动池 day0=360；A（1000 只）在**自动池**（与半自动互不影响）从 06-01 起 11 天；setup 用例两单同为半自动档，B2 跨族最早 06-04）
+- [ ] **Step 2.4: 运行确认通过**（预期 7 passed；全量 153 passed, 1 skipped。手算基准：B（5 只）走半自动池 day0=360；A（1000 只）在**自动池**（与半自动互不影响）从 06-01 起 11 天；setup 用例两单同为半自动档，B2 跨族最早 06-04）
 - [ ] **Step 2.5: 提交** `feat(mps): 排产解码②——定序排产/甘特/硬约束核验`
 
 ---
@@ -575,7 +592,7 @@ def merge_manual_bars(calc_result, manual_ops: list[dict], ctx: dict) -> list[di
     return bars
 ```
 
-- [ ] **Step 3.4: 运行确认通过**（预期 4 passed；全量 156 passed, 1 skipped）
+- [ ] **Step 3.4: 运行确认通过**（预期 4 passed；全量 157 passed, 1 skipped）
 - [ ] **Step 3.5: 提交** `feat(mps): 工序级需求分解与返工追加（operations）`
 
 ---
@@ -651,7 +668,7 @@ def test_build_kanban_overload_and_filters():
 ### Task 5: 3B1 收尾（对照抽查 + 执行记录）
 
 - [ ] **Step 5.1: 对照抽查**：`schedule.py` ↔ `schedule.js` 挑三段（alloc_earliest 207-243、schedule_process_constrained 250-370、gantt_chart 436-481）逐行核对；`operations.py` 为扩展模块（对照设计 D12 检查语义）；`kanban.py` ↔ kanban.js 全量核对。报告结论。
-- [ ] **Step 5.2: 全量回归**（预期 159 passed, 1 skipped）
+- [ ] **Step 5.2: 全量回归**（预期 160 passed, 1 skipped）
 - [ ] **Step 5.3: 执行记录**：更新计划 3 执行记录（3B1 节：摘要/决策/教训；SCHED 清单回写统一留待 3B2 收尾）并提交。
 
 ---
@@ -660,7 +677,7 @@ def test_build_kanban_overload_and_filters():
 
 1. `schedule.py`（解码器 + 甘特）与 `schedule.js` 逐段对齐（Task 5 抽查）；`operations.py`/`kanban.py` 就绪；
 2. SCHED-001/002/003/004/005/006/007/008/009 测试全绿；
-3. 全量测试绿灯（159 passed, 1 skipped）；每任务独立提交。
+3. 全量测试绿灯（160 passed, 1 skipped）；每任务独立提交。
 
 ## 后续衔接（3B2）
 
