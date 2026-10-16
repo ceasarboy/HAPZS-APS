@@ -78,3 +78,52 @@ async def test_batch_snapshot_and_undo(sqlite_session):
     assert b.undone is True
     logs = (await sqlite_session.execute(select(PriorityLog))).scalars().all()
     assert any(l.action == "undo" and l.batch_id == b.batch_id for l in logs)
+
+async def test_reorder_pinned_drag_out_and_status_guard(sqlite_session):
+    from app.mps.priority import PINNED_PRIORITY
+
+    o1 = await _mk_order(sqlite_session, "D-1", priority=100)
+    o2 = await _mk_order(sqlite_session, "D-2", priority=200)
+    paused = await _mk_order(sqlite_session, "D-3", priority=300, status="暂停")
+    # 拖入置顶组
+    r = await reorder_and_log(sqlite_session, o2.id, None, None, True, operator="eve")
+    assert r["ok"] is True
+    await sqlite_session.refresh(o2)
+    assert o2.pinned is True and o2.priority == PINNED_PRIORITY and o2.prio_level == "P0"
+    assert o2.sort_no == 10 and o2.pinned_at is not None
+    # 拖出置顶组 → 清 pinned_at/until/sort_no，普通组中点 250，prio_manual 同步
+    o3 = await _mk_order(sqlite_session, "D-4", priority=400)
+    r2 = await reorder_and_log(sqlite_session, o2.id, o1.id, o3.id, False, operator="eve")
+    assert r2["ok"] is True
+    await sqlite_session.refresh(o2)
+    assert o2.pinned is False and o2.pinned_at is None and o2.pinned_until is None and o2.sort_no is None
+    assert o2.priority == 250 and o2.prio_manual == 250
+    # 非正常状态拒绝
+    r3 = await reorder_and_log(sqlite_session, paused.id, None, None, True, operator="eve")
+    assert r3["ok"] is False and "不可拖拽" in r3["reason"]
+
+
+async def test_pin_mixed_batch(sqlite_session):
+    ok_o = await _mk_order(sqlite_session, "E-1")
+    paused = await _mk_order(sqlite_session, "E-2", status="完成")
+    res = await pin_orders(sqlite_session, [ok_o.id, paused.id, "nope-id"], until=None, operator="frank")
+    assert [x["ok"] for x in res] == [True, False, False]
+    logs = (await sqlite_session.execute(select(PriorityLog))).scalars().all()
+    assert len(logs) == 1 and logs[0].action == "pin"
+
+
+async def test_undo_datetime_roundtrip_and_double_undo(sqlite_session):
+    from datetime import datetime
+
+    o = await _mk_order(sqlite_session, "F-1", priority=0, prio_level="P0", prio_score=80.0,
+                        pinned=True, prio_source="pin",
+                        pinned_at=datetime(2026, 1, 2, 3, 4, 5), pinned_until=date(2026, 12, 31))
+    b = await create_batch(sqlite_session, "recompute", [o], operator="gina")
+    o.pinned, o.pinned_at, o.pinned_until, o.priority, o.prio_score = False, None, None, 500, 40.0
+    await sqlite_session.commit()
+    n = await undo_batch(sqlite_session, b.batch_id, operator="gina")
+    assert n == 1
+    await sqlite_session.refresh(o)
+    assert o.pinned is True and o.pinned_at == datetime(2026, 1, 2, 3, 4, 5)
+    assert o.pinned_until == date(2026, 12, 31) and o.priority == 0 and o.prio_score == 80.0
+    assert await undo_batch(sqlite_session, b.batch_id) == 0     # 已撤销批次再撤销 → 0

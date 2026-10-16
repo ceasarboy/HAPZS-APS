@@ -852,6 +852,56 @@ async def test_batch_snapshot_and_undo(sqlite_session):
     assert b.undone is True
     logs = (await sqlite_session.execute(select(PriorityLog))).scalars().all()
     assert any(l.action == "undo" and l.batch_id == b.batch_id for l in logs)
+
+
+async def test_reorder_pinned_drag_out_and_status_guard(sqlite_session):
+    from app.mps.priority import PINNED_PRIORITY
+
+    o1 = await _mk_order(sqlite_session, "D-1", priority=100)
+    o2 = await _mk_order(sqlite_session, "D-2", priority=200)
+    paused = await _mk_order(sqlite_session, "D-3", priority=300, status="暂停")
+    # 拖入置顶组
+    r = await reorder_and_log(sqlite_session, o2.id, None, None, True, operator="eve")
+    assert r["ok"] is True
+    await sqlite_session.refresh(o2)
+    assert o2.pinned is True and o2.priority == PINNED_PRIORITY and o2.prio_level == "P0"
+    assert o2.sort_no == 10 and o2.pinned_at is not None
+    # 拖出置顶组 → 清 pinned_at/until/sort_no，普通组中点 250，prio_manual 同步
+    o3 = await _mk_order(sqlite_session, "D-4", priority=400)
+    r2 = await reorder_and_log(sqlite_session, o2.id, o1.id, o3.id, False, operator="eve")
+    assert r2["ok"] is True
+    await sqlite_session.refresh(o2)
+    assert o2.pinned is False and o2.pinned_at is None and o2.pinned_until is None and o2.sort_no is None
+    assert o2.priority == 250 and o2.prio_manual == 250
+    # 非正常状态拒绝
+    r3 = await reorder_and_log(sqlite_session, paused.id, None, None, True, operator="eve")
+    assert r3["ok"] is False and "不可拖拽" in r3["reason"]
+
+
+async def test_pin_mixed_batch(sqlite_session):
+    ok_o = await _mk_order(sqlite_session, "E-1")
+    paused = await _mk_order(sqlite_session, "E-2", status="完成")
+    res = await pin_orders(sqlite_session, [ok_o.id, paused.id, "nope-id"], until=None, operator="frank")
+    assert [x["ok"] for x in res] == [True, False, False]
+    logs = (await sqlite_session.execute(select(PriorityLog))).scalars().all()
+    assert len(logs) == 1 and logs[0].action == "pin"
+
+
+async def test_undo_datetime_roundtrip_and_double_undo(sqlite_session):
+    from datetime import datetime
+
+    o = await _mk_order(sqlite_session, "F-1", priority=0, prio_level="P0", prio_score=80.0,
+                        pinned=True, prio_source="pin",
+                        pinned_at=datetime(2026, 1, 2, 3, 4, 5), pinned_until=date(2026, 12, 31))
+    b = await create_batch(sqlite_session, "recompute", [o], operator="gina")
+    o.pinned, o.pinned_at, o.pinned_until, o.priority, o.prio_score = False, None, None, 500, 40.0
+    await sqlite_session.commit()
+    n = await undo_batch(sqlite_session, b.batch_id, operator="gina")
+    assert n == 1
+    await sqlite_session.refresh(o)
+    assert o.pinned is True and o.pinned_at == datetime(2026, 1, 2, 3, 4, 5)
+    assert o.pinned_until == date(2026, 12, 31) and o.priority == 0 and o.prio_score == 80.0
+    assert await undo_batch(sqlite_session, b.batch_id) == 0     # 已撤销批次再撤销 → 0
 ```
 
 - [ ] **Step 4.2: 运行确认失败**
@@ -866,6 +916,7 @@ async def test_batch_snapshot_and_undo(sqlite_session):
 - 批量快照：PriorityBatch.snapshot 保存变更前状态，支持整体撤销（PRIO-008）
 """
 from datetime import date, datetime
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -879,6 +930,7 @@ def _now():
 
 
 async def write_log(session: AsyncSession, **row) -> PriorityLog:
+    """独立日志写入（自带 commit；勿用于批处理循环——批量场景用各业务函数的内部记日志）。"""
     log = PriorityLog(**row)
     session.add(log)
     await session.commit()
@@ -970,10 +1022,12 @@ async def expire_pins(session: AsyncSession, today=None) -> list[dict]:
 
 async def reorder_and_log(session: AsyncSession, order_id: str, prev_id=None, next_id=None,
                           to_pinned: bool = False, operator: str = "") -> dict:
-    """拖拽落位并落库（只改被拖动的一条）。"""
+    """拖拽落位并落库（只改被拖动的一条）。非"正常"状态工单拒绝（对齐 mps-web server.js）。"""
     o = (await session.execute(select(Order).where(Order.id == order_id))).scalar_one_or_none()
     if not o:
         return {"ok": False, "reason": "工单不存在"}
+    if (o.status or "正常") != "正常":
+        return {"ok": False, "reason": f"{o.status or '非正常'}状态工单不可拖拽"}
     prev = (await session.execute(select(Order).where(Order.id == prev_id))).scalar_one_or_none() if prev_id else None
     nxt = (await session.execute(select(Order).where(Order.id == next_id))).scalar_one_or_none() if next_id else None
 
@@ -996,6 +1050,7 @@ async def reorder_and_log(session: AsyncSession, order_id: str, prev_id=None, ne
     else:
         o.pinned_at = None
         o.pinned_until = None
+        o.prio_manual = target["priority"]          # 拖入普通组即计划员显式排序（对齐 server.js）
     session.add(PriorityLog(
         order_id=order_id, order_no=o.order_no, action="reorder",
         old_priority=old_priority, new_priority=o.priority,
@@ -1007,17 +1062,18 @@ async def reorder_and_log(session: AsyncSession, order_id: str, prev_id=None, ne
     return {"ok": True, "target": target}
 
 
-_SNAPSHOT_FIELDS = ("priority", "prio_level", "prio_source", "prio_manual", "sort_no", "pinned", "pinned_at", "pinned_until")
+_SNAPSHOT_FIELDS = ("priority", "prio_level", "prio_source", "prio_manual", "prio_score",
+                    "sort_no", "pinned", "pinned_at", "pinned_until", "pinned_by")
+
+
+def _ser(v):
+    return v.isoformat() if isinstance(v, (date, datetime)) else v
 
 
 async def create_batch(session: AsyncSession, action: str, orders: list[Order], operator: str = "") -> PriorityBatch:
     """记录批量操作快照（撤销用）。"""
-    snapshot = {
-        str(o.id): {f: (getattr(o, f).isoformat() if isinstance(getattr(o, f), (date, datetime)) else getattr(o, f))
-                    for f in _SNAPSHOT_FIELDS}
-        for o in orders
-    }
-    batch = PriorityBatch(batch_id=__import__("uuid").uuid4().hex, action=action,
+    snapshot = {str(o.id): {f: _ser(getattr(o, f)) for f in _SNAPSHOT_FIELDS} for o in orders}
+    batch = PriorityBatch(batch_id=uuid.uuid4().hex, action=action,
                           item_count=len(orders), snapshot=snapshot, operator=operator or "")
     session.add(batch)
     await session.commit()
@@ -1025,7 +1081,7 @@ async def create_batch(session: AsyncSession, action: str, orders: list[Order], 
 
 
 async def undo_batch(session: AsyncSession, batch_id: str, operator: str = "system") -> int:
-    """撤销批量操作：按快照恢复字段并记日志（undo_of=batch）。"""
+    """撤销批量操作：按快照恢复字段并记日志（日志 batch_id=batch.batch_id；undo_of 列未用）。"""
     batch = (await session.execute(select(PriorityBatch).where(PriorityBatch.batch_id == batch_id))).scalar_one_or_none()
     if not batch or batch.undone or not batch.snapshot:
         return 0
@@ -1053,7 +1109,9 @@ async def undo_batch(session: AsyncSession, batch_id: str, operator: str = "syst
     return restored
 ```
 
-- [ ] **Step 4.4: 运行确认通过** → 定向 5 passed；全量（预期 132 passed）
+- [ ] **Step 4.4: 运行确认通过** → 定向 8 passed（首发 5 + 跟进 3）；全量（**131 passed, 1 skipped**）
+
+**评审跟进（2026-10-14 质量审查后并入）**：`reorder_and_log` 增加非"正常"状态守卫（对齐 mps-web server.js）；拖入普通组时同步 `prio_manual`；`_SNAPSHOT_FIELDS` 增补 `prio_score/pinned_by`；`create_batch` 顶部 `import uuid` + `_ser` 抽取；`undo_batch` docstring 修正。**并发决策留痕**：拖拽/置顶乐观锁（`expected_prio_updated_at` → 409）由后续 API 层实现，本服务层已维护 `prio_updated_at` 供比对。
 - [ ] **Step 4.5: 提交** `feat(mps): 优先级持久化服务（置顶/到期/拖拽/审计/批量撤销）`
 
 ---
