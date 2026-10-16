@@ -64,3 +64,36 @@ async def test_sync_and_manual_persistence(sqlite_session):
     assert n2 == 2
     rows2 = (await sqlite_session.execute(select(OrderOperation).order_by(OrderOperation.seq))).scalars().all()
     assert [x.source for x in rows2].count("manual") == 1
+    assert rows2[1].depends_on_id == rows2[0].id               # auto 依赖链重建
+
+
+async def test_sync_rejects_error_form(sqlite_session):
+    r, _ = _calc_pair()
+    o = Order(order_no="O-2", product="P", code="M02-2D", qty=1000, features={"N_die": 60, "N_wire": 60})
+    sqlite_session.add(o)
+    await sqlite_session.commit()
+    with pytest.raises(ValueError):
+        await sync_order_operations(sqlite_session, o.id, {"error": "boom"})
+    with pytest.raises(ValueError):
+        await sync_order_operations(sqlite_session, o.id, {})
+
+
+def test_merge_manual_bars_idempotent():
+    r, ctx = _calc_pair()
+    ops = [{"after_seq": 1, "level": "模块级", "op": "调试", "mode": None, "usage": 1}]
+    merge_manual_bars(r, ops, ctx)
+    n1 = len(r["gantt"]["bars"])
+    merge_manual_bars(r, ops, ctx)                             # 重复调用不重复追加
+    assert len(r["gantt"]["bars"]) == n1
+    assert [b["seq"] for b in r["gantt"]["bars"]].count(1.5) == 1
+
+
+def test_merge_manual_explicit_mode_flux():
+    r, ctx = _calc_pair()
+    merged = merge_manual_bars(
+        r, [{"after_seq": 1, "level": "模块级", "op": "DB", "mode": "半自动DB", "usage": 1}], ctx)
+    mb = merged[-1]
+    assert mb["mode"] == "半自动DB" and mb["flux"] == 2000     # 显式模式按精确匹配取产能
+    merged2 = merge_manual_bars(
+        r, [{"after_seq": 1, "level": "模块级", "op": "DB", "mode": "不存在档", "usage": 1}], ctx)
+    assert merged2[-1]["flux"] is None                         # 无匹配 → 解码护栏口径

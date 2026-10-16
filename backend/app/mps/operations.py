@@ -4,6 +4,7 @@
 - sync_order_operations：auto 行删除重建（depends_on_id 按 seq 链）；manual 行保留
 - add_manual_operation：手工追加工序需求（挂在指定 seq 的 auto 行之后）
 - merge_manual_bars：把手工行转换为解码层可消费的 extra bars（[扩展] manual 标记）
+- sync/追加逐单提交（非批处理原子），与 priority_service 口径一致。
 """
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,8 @@ def decompose(calc_result) -> list[dict]:
 
 async def sync_order_operations(session: AsyncSession, order_id: str, calc_result) -> int:
     """重建该单自动工序需求（manual 行保留），返回插入行数。"""
+    if calc_result.get("error") or "steps" not in calc_result:
+        raise ValueError("calc_result 无效（含 error 或缺少 steps），拒绝重建工序需求")
     await session.execute(
         delete(OrderOperation).where(OrderOperation.order_id == order_id, OrderOperation.source == "auto"))
     rows = decompose(calc_result)
@@ -71,20 +74,29 @@ def merge_manual_bars(calc_result, manual_ops: list[dict], ctx: dict) -> list[di
 
     manual_ops 每项：{after_seq, level, op, mode?, usage}
     - flux 按订单实际批量分流从主数据解析（缺主数据 → flux None → 解码时跳过并告警）
+    - 显式 mode 时按 mode_name 精确匹配取产能；无匹配 → flux None（解码护栏）：
     - seq 取前道条 seq + 0.5（排序保持其后）；earliest_start 取前道条同值
     """
     bars = calc_result["gantt"]["bars"]
+    bars[:] = [b for b in bars if not b.get("manual")]  # 幂等：以本次 manual_ops 为准，先剥离既有手工条
     qty = calc_result["input_qty"]
     p = ctx["params"]
     use_peak = str(p.get("use_peak") or "mean") == "peak"
     for m in manual_ops:
         wc = ctx["wc_map"].get(f"{m['level']}|{m['op']}")
-        picked = pick_mode(wc, qty) if wc else None
         flux = None
         mode = m.get("mode")
-        if picked:
-            mode = mode or picked["mode_name"]
-            flux = nz(picked["mode"].get("flux_peak"), 0) if use_peak else nz(picked["mode"].get("flux_base"), 0)
+        if wc:
+            md_ = None
+            if mode:
+                md_ = next((x for x in (wc.get("modes") or []) if (x.get("mode") or "/") == mode), None)
+            else:
+                picked = pick_mode(wc, qty)
+                if picked:
+                    mode = picked["mode_name"]
+                    md_ = picked["mode"]
+            if md_:
+                flux = nz(md_.get("flux_peak"), 0) if use_peak else nz(md_.get("flux_base"), 0)
         pred = next((b for b in bars
                      if b.get("kind") == "step" and b.get("seq") == m.get("after_seq")), None)
         bar = {"kind": "step", "seq": (pred["seq"] + 0.5) if pred else (max(

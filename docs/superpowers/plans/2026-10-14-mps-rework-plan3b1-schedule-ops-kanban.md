@@ -502,6 +502,39 @@ async def test_sync_and_manual_persistence(sqlite_session):
     assert n2 == 2
     rows2 = (await sqlite_session.execute(select(OrderOperation).order_by(OrderOperation.seq))).scalars().all()
     assert [x.source for x in rows2].count("manual") == 1
+    assert rows2[1].depends_on_id == rows2[0].id               # auto 依赖链重建
+
+
+async def test_sync_rejects_error_form(sqlite_session):
+    r, _ = _calc_pair()
+    o = Order(order_no="O-2", product="P", code="M02-2D", qty=1000, features={"N_die": 60, "N_wire": 60})
+    sqlite_session.add(o)
+    await sqlite_session.commit()
+    with pytest.raises(ValueError):
+        await sync_order_operations(sqlite_session, o.id, {"error": "boom"})
+    with pytest.raises(ValueError):
+        await sync_order_operations(sqlite_session, o.id, {})
+
+
+def test_merge_manual_bars_idempotent():
+    r, ctx = _calc_pair()
+    ops = [{"after_seq": 1, "level": "模块级", "op": "调试", "mode": None, "usage": 1}]
+    merge_manual_bars(r, ops, ctx)
+    n1 = len(r["gantt"]["bars"])
+    merge_manual_bars(r, ops, ctx)                             # 重复调用不重复追加
+    assert len(r["gantt"]["bars"]) == n1
+    assert [b["seq"] for b in r["gantt"]["bars"]].count(1.5) == 1
+
+
+def test_merge_manual_explicit_mode_flux():
+    r, ctx = _calc_pair()
+    merged = merge_manual_bars(
+        r, [{"after_seq": 1, "level": "模块级", "op": "DB", "mode": "半自动DB", "usage": 1}], ctx)
+    mb = merged[-1]
+    assert mb["mode"] == "半自动DB" and mb["flux"] == 2000     # 显式模式按精确匹配取产能
+    merged2 = merge_manual_bars(
+        r, [{"after_seq": 1, "level": "模块级", "op": "DB", "mode": "不存在档", "usage": 1}], ctx)
+    assert merged2[-1]["flux"] is None                         # 无匹配 → 解码护栏口径
 ```
 
 **注意**：`decompose` 输出列表的 `seq` 用工序 seq；`sync` 持久化时 auto 行按 seq 从 1 连续重排（插入 manual 行后 auto 行 seq 不变、manual 行 seq 取"前道 seq+1 后的小数"不可行——**本实现约定**：manual 行 `seq = max(已有 seq)+1`（追加在末位），依赖关系由 `depends_on_id` 表达；`merge_manual_bars` 的定位以 `after_seq` 为准。执行者按此约定实现并保持测试断言（如与实现冲突，先核对本约定）。
@@ -517,6 +550,7 @@ async def test_sync_and_manual_persistence(sqlite_session):
 - sync_order_operations：auto 行删除重建（depends_on_id 按 seq 链）；manual 行保留
 - add_manual_operation：手工追加工序需求（挂在指定 seq 的 auto 行之后）
 - merge_manual_bars：把手工行转换为解码层可消费的 extra bars（[扩展] manual 标记）
+- sync/追加逐单提交（非批处理原子），与 priority_service 口径一致。
 """
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -542,6 +576,8 @@ def decompose(calc_result) -> list[dict]:
 
 async def sync_order_operations(session: AsyncSession, order_id: str, calc_result) -> int:
     """重建该单自动工序需求（manual 行保留），返回插入行数。"""
+    if calc_result.get("error") or "steps" not in calc_result:
+        raise ValueError("calc_result 无效（含 error 或缺少 steps），拒绝重建工序需求")
     await session.execute(
         delete(OrderOperation).where(OrderOperation.order_id == order_id, OrderOperation.source == "auto"))
     rows = decompose(calc_result)
@@ -584,20 +620,29 @@ def merge_manual_bars(calc_result, manual_ops: list[dict], ctx: dict) -> list[di
 
     manual_ops 每项：{after_seq, level, op, mode?, usage}
     - flux 按订单实际批量分流从主数据解析（缺主数据 → flux None → 解码时跳过并告警）
+    - 显式 mode 时按 mode_name 精确匹配取产能；无匹配 → flux None（解码护栏）：
     - seq 取前道条 seq + 0.5（排序保持其后）；earliest_start 取前道条同值
     """
     bars = calc_result["gantt"]["bars"]
+    bars[:] = [b for b in bars if not b.get("manual")]  # 幂等：以本次 manual_ops 为准，先剥离既有手工条
     qty = calc_result["input_qty"]
     p = ctx["params"]
     use_peak = str(p.get("use_peak") or "mean") == "peak"
     for m in manual_ops:
         wc = ctx["wc_map"].get(f"{m['level']}|{m['op']}")
-        picked = pick_mode(wc, qty) if wc else None
         flux = None
         mode = m.get("mode")
-        if picked:
-            mode = mode or picked["mode_name"]
-            flux = nz(picked["mode"].get("flux_peak"), 0) if use_peak else nz(picked["mode"].get("flux_base"), 0)
+        if wc:
+            md_ = None
+            if mode:
+                md_ = next((x for x in (wc.get("modes") or []) if (x.get("mode") or "/") == mode), None)
+            else:
+                picked = pick_mode(wc, qty)
+                if picked:
+                    mode = picked["mode_name"]
+                    md_ = picked["mode"]
+            if md_:
+                flux = nz(md_.get("flux_peak"), 0) if use_peak else nz(md_.get("flux_base"), 0)
         pred = next((b for b in bars
                      if b.get("kind") == "step" and b.get("seq") == m.get("after_seq")), None)
         bar = {"kind": "step", "seq": (pred["seq"] + 0.5) if pred else (max(
@@ -610,7 +655,7 @@ def merge_manual_bars(calc_result, manual_ops: list[dict], ctx: dict) -> list[di
     return bars
 ```
 
-- [ ] **Step 3.4: 运行确认通过**（预期 4 passed；全量 157 passed, 1 skipped）
+- [ ] **Step 3.4: 运行确认通过**（预期 7 passed（本文件）、全量 160 passed, 1 skipped）
 - [ ] **Step 3.5: 提交** `feat(mps): 工序级需求分解与返工追加（operations）`
 
 ---
@@ -686,7 +731,7 @@ def test_build_kanban_overload_and_filters():
 ### Task 5: 3B1 收尾（对照抽查 + 执行记录）
 
 - [ ] **Step 5.1: 对照抽查**：`schedule.py` ↔ `schedule.js` 挑三段（alloc_earliest 207-243、schedule_process_constrained 250-370、gantt_chart 436-481）逐行核对；`operations.py` 为扩展模块（对照设计 D12 检查语义）；`kanban.py` ↔ kanban.js 全量核对。报告结论。
-- [ ] **Step 5.2: 全量回归**（预期 160 passed, 1 skipped）
+- [ ] **Step 5.2: 全量回归**（预期 163 passed, 1 skipped）
 - [ ] **Step 5.3: 执行记录**：更新计划 3 执行记录（3B1 节：摘要/决策/教训；SCHED 清单回写统一留待 3B2 收尾）并提交。
 
 ---
@@ -695,7 +740,7 @@ def test_build_kanban_overload_and_filters():
 
 1. `schedule.py`（解码器 + 甘特）与 `schedule.js` 逐段对齐（Task 5 抽查）；`operations.py`/`kanban.py` 就绪；
 2. SCHED-001/002/003/004/005/006/007/008/009 测试全绿；
-3. 全量测试绿灯（160 passed, 1 skipped）；每任务独立提交。
+3. 全量测试绿灯（163 passed, 1 skipped）；每任务独立提交。
 
 ## 后续衔接（3B2）
 
