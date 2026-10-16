@@ -4,7 +4,7 @@ import pytest
 from app.mps.strategy import (
     OBJECTIVE_SCHEMA, STRATEGIES, STRATEGY_CONFIG_SCHEMA, STRATEGY_IDS,
     bottleneck_load_of, family_of, get_strategy, get_strategy_config_values,
-    order_by_bottleneck, order_by_due, order_by_priority, order_by_setup, order_by_util,
+    order_by_bottleneck, order_by_due, order_by_setup, order_by_util,
     strategy_metrics, strategy_score, workload_of,
 )
 
@@ -45,7 +45,33 @@ def test_order_fns():
     assert [x["order"]["order_no"] for x in order_by_setup([b, a, c], {})] == ["C", "A", "B"]    # 族 M01 聚拢；族内交期早者先
     assert [x["order"]["order_no"] for x in order_by_bottleneck([a, c, b], {})] == ["B", "A", "C"]  # 600/100=6 > 100/100=1 > 无
     d = _r("D", code="M01-2DS", due="2026-07-03")
-    assert order_by_due([a, d], {"base_date": "2026-06-01", "due_buffer_days": 10}) is not None
+    seq0 = [x["order"]["order_no"] for x in order_by_due([a, d], {"base_date": "2026-06-01"})]
+    seq1 = [x["order"]["order_no"] for x in order_by_due([a, d], {"base_date": "2026-06-01", "due_buffer_days": 10})]
+    assert seq0 == seq1            # 交期缓冲对顺序无观察效果（评审留痕）
+
+
+def test_order_fn_interface_contract():
+    src = [_r("A", due="2026-07-02"), _r("B", due="2026-07-01")]
+    snapshot = [x["order"]["order_no"] for x in src]
+    out = get_strategy("due")["orderFn"](src, {"base_date": "2026-06-01"})
+    assert [x["order"]["order_no"] for x in out] == ["B", "A"]
+    assert [x["order"]["order_no"] for x in src] == snapshot      # 输入不被修改
+    assert out is not src
+
+
+def test_strategy_score_edges():
+    assert strategy_score(STRATEGIES["priority"], None) is None
+    zero = {"tardy": 0, "setup": 0, "imbal": 0, "makespan": 0}
+    assert strategy_score({"objective": zero}, {"onTimeRate": 80}) == 0   # wsum 兜底为 1，分子 0
+
+
+def test_metrics_makespan_and_error_first_row():
+    planned = [_r("A", judge="满足"), _r("B", judge="满足")]
+    m = strategy_metrics(planned, [])
+    assert m["makespan"] == 9      # 06-01 → 06-10
+    err_first = [{"error": "boom"}, _r("A", judge="满足")]
+    m2 = strategy_metrics(err_first, [])
+    assert m2["makespan"] == 9     # 锚点加固：不受 error 首行影响
 
 
 def test_strategy_metrics_and_score():

@@ -47,7 +47,10 @@ def order_by_priority(results, opts=None) -> list:
 
 def order_by_due(results, opts=None) -> list:
     """交期优先（EDD）：交期最早者先排，无交期排最后；同交期按全序 comparator 兜底。
-    支持配置项 due_buffer_days（交期缓冲天数）：将交期向后平移，排序更保守、留更多余地。"""
+
+    注（评审留痕）：due_buffer_days 对排序无观察效果——交期匀移保持相对序、哨兵日期不动，
+    remain 分支为 JS 同源死代码（da==db 时 remain 恒等）。保留参数以对齐配置面，语义决策留计划 3B。
+    """
     o = opts or {}
     base = o.get("base_date") or to_str(date.today())
     buf = prio._num(o.get("due_buffer_days"), 0)
@@ -63,7 +66,7 @@ def order_by_due(results, opts=None) -> list:
         da, db = due_of(a), due_of(b)
         if da != db:
             return -1 if da < db else 1
-        ra, rb = remain(da), remain(db)  # 剩余天数少者更紧急
+        ra, rb = remain(da), remain(db)  # JS 同源死分支（da==db 时恒等）；保留痕迹
         if ra is not None and rb is not None and ra != rb:
             return -1 if ra < rb else 1
         return prio.cmp_result(a, b)
@@ -186,7 +189,8 @@ def get_strategy(id, p=None) -> dict:
     非法值（不可解析/负值）保留原值。"""
     base = STRATEGIES.get(id) or STRATEGIES["priority"]
     if p is None:
-        return base
+        # 加固：返回副本而非注册表本体（防止调用方原地改 objective 污染全局）
+        return {**base, "objective": dict(base["objective"])}
     obj = dict(base["objective"])
     for k in obj:
         v = prio._num(p.get("strategy_" + base["id"] + "_" + k), None)
@@ -282,7 +286,9 @@ def strategy_metrics(planned, load) -> dict:
         for b in r["gantt"]["bars"] if b.get("setup_days")
     )
     fin = [(r.get("plan") or {}).get("finish_date") for r in items if (r.get("plan") or {}).get("finish_date")]
-    start0 = ((planned[0] or {}).get("plan") or {}).get("start_date") if planned else None
+    # 加固：锚点取首个有 start_date 的非 error 行（JS 用 planned[0]，error 首行时 makespan 塌缩为 0）
+    start0 = next(((r.get("plan") or {}).get("start_date") for r in items
+                   if (r.get("plan") or {}).get("start_date")), None)
     makespan = max((diff_days(start0 or d, d) or 0) for d in fin) if fin else 0
     # 瓶颈工序利用率 = 最高负荷率的工序
     bottleneckUtil = max(rates) if rates else 0
