@@ -39,3 +39,67 @@
 4. 确定性基准验收 = 策略 orderFn + 解码器输出与 mps-web 一致（SCHED-009）；GA 固定种子可复现（预案已在设计 §3）。
 
 **低优先遗留**：`get_strategy_config_values` 全 schema 遍历测试、orderFn 各策略乱序稳定性（随 3B 顺带）。
+
+---
+
+# MPS 改造计划 3 执行记录与经验教训（3B1：排产解码与工序需求）
+
+- 日期：2026-10-16
+- 分支：`mps-rework`
+- 计划：`docs/superpowers/plans/2026-10-14-mps-rework-plan3b1-schedule-ops-kanban.md`
+
+## 一、执行摘要（3B1）
+
+| 项 | 结果 |
+|---|---|
+| 完成范围 | Task 1~5 全部完成（3B2：APS/GA/求解与批次落库 未开始） |
+| 测试基线 | **166 passed, 1 skipped**（内嵌 Python 3.13.5） |
+| 计数轨迹 | 139（3A）→ 146（T1）→ 153（T2）→ 157（T3 初）→ 160（T3 跟进）→ 163（T4 初）→ 166（T4 跟进） |
+| 交付物 | `schedule.py`（399 行：alloc_earliest/op_work/定序正排/非容量分支/甘特）、`operations.py`（109 行：D12 工序级需求分解与返工追加）、`kanban.py`（143 行：日任务看板）；新增测试 27（schedule 14 / operations 7 / kanban 6） |
+| 对照抽查 | schedule 三段逐行 + kanban 全量逐行通过；`alloc_earliest` Node↔Python 差分探针 6 例输出全等（见二-7） |
+
+| 任务 | 提交（实现 / 跟进 / 文档镜像） |
+|---|---|
+| T1 账本分配 | `57aa7a1` / `804d7d0` / `ec324b7`（夹具修正镜像） |
+| T2 定序排产+甘特 | `407748d` / `1194117` / `2c45bcf`（护栏补缺+计数修正） |
+| T3 operations | `7569e59` / `d8da1dc`（跟进含镜像） |
+| T4 kanban | `2fbb942` / `1b8a399`（跟进含镜像） |
+| T5 收尾 | 本提交（对照抽查 + 执行记录；哈希见 git log 末条） |
+
+## 二、关键决策与偏离留痕
+
+1. **WB 良率夹具修正（0.98，Node 实证）**：计划 Task1 夹具 WB=0.99（0.97×0.99=0.9603 → Q=1042）与全计划"Q=1052"类断言矛盾；开工前用 Node engine.js 实跑实证后修正为 0.98（0.97×0.98=0.9506 → Q=⌈1000×1.05197⌉=1052），`ec324b7` 镜像计划 + 测试留痕注释。
+2. **schedule 4 项偏离（JS 死分支/边界修正，均已入 docstring）**：
+   ① kit_adjusted 取 kit_offset>0（JS 的 `diffDays(start, kit) < 0` 为恒假死分支，齐套门槛实际生效时应标注调整）；
+   ② gantt_chart 有界产能模式下无 from/to 的条按 base 回退（JS 按 plan.start_date，前置分部件会与首道工序重叠；本实现要求前置条先于首道工序完工）；
+   ③ 护栏位置：缺 WC 护栏置于 op_work 之后、fluxOf 登记与产能分配之前（跳过条不登记 fluxOf，仅记 warnings）；
+   ④ first_start 全无时回退 `add_days(base, kit_offset)`（T2 跟进修正 `1194117`，原实现回退 base）。
+3. **护栏 [扩展]（偏离 JS：缺 WC 不挂死）**：op_work 得 flux=1e-9 时跳过产能分配并记 warnings（否则 `ceil_int(amt/1e-9)` → grow 6.3e13 行挂死，JS 同病）；配套 cap 核验对无 steps 资源键（手工条）回退 fluxOf（JS 取 1e-9 会误报超载）。
+4. **Task3 三项修复（质量跟进 `d8da1dc`）**：① `sync_order_operations` 拒绝 error/缺 steps 的 calc_result（防误删重建）；② `merge_manual_bars` 先剥离既有手工条（重复调用幂等）；③ 显式 mode 按 mode_name 精确匹配取产能、无匹配 flux=None（走解码护栏）。
+5. **kanban 4 项适配（micro 差异，已入 docstring）**：① `Math.round` → `js_round`（半上舍入 floor(x+0.5)；Python 银行家舍入边界不一致）；② ledger 索引显式守卫 `0 <= q_idx < len`（JS undefined→0；Python 负索引会绕到尾部）；③ base 缺省 `date.today()`（本地时区）vs JS UTC，跨日边界微差；④ groups 平局按 op 码点序（JS localeCompare 依赖语言环境）。
+6. **Task4 测试补强（`1b8a399`）**：无效日期错误分支（无 groups）、负索引守卫（对照 JS undefined→0 不变式）、状态梯（超负荷>延期>缺料>正常）+ setup 条排除、flux 缺失 load_rate=None 不判超载。
+7. **对照抽查结论（T5）**：
+   - `schedule.py:72-111` ↔ `schedule.js:207-243`（allocEarliest）：逐行 1:1（含 1e-9 ceil 容差、slots/nooverlap、3650 扫描上限、dayNeeded≤0 早退）；
+   - `schedule.py:132-267` ↔ `schedule.js:250-370`（scheduleProcessConstrained）：逐行 1:1，差异仅二-2/3 所列 4+1 项偏离（均已留痕）；
+   - `schedule.py:355-399` ↔ `schedule.js:436-481`（ganttChart）：逐行 1:1，差异仅 anchor 回退（二-2②）；
+   - `operations.py` ↔ 设计 D12/§4：自动分解（depends_on_seq 链）/手工追加（source=manual + depends_on_id + note）/重同步保 manual/手工条参与排产占产能，语义符合；
+   - `kanban.py` ↔ `kanban.js`（121 行全量）：等价，差异仅 4 项适配（二-5）；
+   - 差分探针：`alloc_earliest` 6 例（账本铺开/二单顺延/ceil 容差/单资源不可行扫描至 limit+1/nooverlap slots/零量早退）Node v24 与内嵌 Python 输出全等。
+
+## 三、经验教训（本批次真实事件）
+
+1. **"计划笔误"系列（计划文本必须实证复核）**：夹具体量矛盾 1042 vs 1052（WB 0.99/0.98 口径，Node 实证才定位）；due 链断言方向写反（正确语义：实际开工 < 最晚投料日 = 满足）；`_ctx_min` 缺"模块级|调试"WC（手工条用例主数据漏配，运行才暴露）；计划 Task3 测试代码块漏 `Order` import；看板夹具列表表达式尾部 noop 拼接 `*11 + []`——**计划代码块誊写后须先跑通再落地**。
+2. **预检发现计划缺陷（正向经验）**：T1 前 Node 实跑（发现夹具矛盾）、T2 前手算基准（06-02/63120/11）先行核验，均在实现前暴露计划缺陷——"先实证后实现"保留为 3B2 默认动作。
+3. **质量跟进闭环**：四个任务各有一轮审查跟进（`804d7d0`/`1194117`/`d8da1dc`/`1b8a399`），修复项覆盖幂等/护栏/边界/测试判别力，均随提交附测试与文档镜像，无返工。
+
+## 四、未决事项与续跑指南（3B2）
+
+**3B2 范围（下一步）**：`aps.py`（gate/启发式/局部搜索/指标/评估）→ `ga.py`（DEAP 求解核心 + PARAM_DEFS 增 ga_population/ga_generations/ga_seed）→ `solver.py`（模式门面：ga 默认/确定性基准/heuristic；CP-SAT 延后留痕）→ `schedule_service.py`（载单/运行/批次与分配落库/订单回写，SCHED-010）→ SCHED 清单回写与计划 3 最终审查。
+
+**3B2 开工前注意（从 3B1 传递）**：
+1. **重同步悬空**：`sync_order_operations` 删除重建 auto 行后，manual 行的 `depends_on_id` 可能悬空（指向已删旧 id）——service 接入时按 order_id+seq 重挂或清理；
+2. **warnings 序列化**：解码返回含 [扩展] `warnings` 键（JS 无），批次落库/API 回显须纳入；缺 WC 告警供前端提示消费；
+3. **kanban 错误分支无 groups**：无效日期返回不含 `groups`（JS 同构），消费方须空值防护；
+4. **operations Minor 5-10**：评审遗留次要项（非阻塞）留待 service 接入时一并处理；
+5. **SCHED 清单回写归 3B2**（001~009 随本批实现完成；010 随 schedule_service）；
+6. **回调契约（3B2 消费）**：`schedule_process_constrained(results, base, opts)`、`gantt_chart(planned, {"base_date": …})`、`ledger`/`fluxOf`（周负荷与看板共用）、`merge_manual_bars`。
