@@ -38,7 +38,7 @@
 - Create: `backend/app/mps/aps.py`
 - Create: `backend/tests/mps/test_mps_aps.py`
 
-- [ ] **Step 1.1: 编写失败测试**（夹具与断言值均来自探针实测）
+- [x] **Step 1.1: 编写失败测试**（夹具与断言值均来自探针实测）
 
 ```python
 """APS 门面：门控/成组启发式/指标/评估/局部搜索/编排（移植 aps.js）。"""
@@ -231,14 +231,14 @@ def test_aps_run_optimize_mode():
     assert run["gantt"]["horizon_days"] == 124
 ```
 
-- [ ] **Step 1.2: 运行确认失败**
+- [x] **Step 1.2: 运行确认失败**
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_aps.py -q
 ```
 预期：collection error `ModuleNotFoundError: No module named 'app.mps.aps'`。
 
-- [ ] **Step 1.3: 创建 `backend/app/mps/aps.py`**（按 `aps.js` 207 行移植；含探针实证的 date 归一修复）
+- [x] **Step 1.3: 创建 `backend/app/mps/aps.py`**（按 `aps.js` 207 行移植；含探针实证的 date 归一修复）
 
 ```python
 """APS 门面层（移植自 mps-web src/aps.js；纯计算，不写库）。
@@ -503,14 +503,14 @@ def aps_run(results, ctx, opts=None) -> dict:
     }
 ```
 
-- [ ] **Step 1.4: 运行确认通过**（预期：本文件 8 passed；全量 174 passed, 1 skipped）
+- [x] **Step 1.4: 运行确认通过**（预期：本文件 8 passed；全量 174 passed, 1 skipped）
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_aps.py -q
 $env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -q
 ```
 
-- [ ] **Step 1.5: 提交** `feat(mps): APS 门面移植（aps.js：门控/GT 启发式/局部搜索/编排）`
+- [x] **Step 1.5: 提交** `feat(mps): APS 门面移植（aps.js：门控/GT 启发式/局部搜索/编排）`
 
 ---
 
