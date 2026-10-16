@@ -142,3 +142,60 @@
 2. **Task 1 质量审查重发**（本次未完成）；规格审查 5 项非阻断建议择要跟进（入"质量跟进"提交）：①评估隔离断言（`assert "plan" not in r`，变异实验证明现测试不钉此项）；②`aps_optimize` 改进分支（fixture 下不可达）留痕即可；③门控缺 kit_date/`cap_threshold` 覆盖可补轻量用例；④use_peak/peak_factor、base_date 缺省、setup=False 覆盖（可选）。
 3. **Task 2~5 依计划执行**：ga.py（DEAP）+PARAM_DEFS+`deap==1.4.4` 入 requirements → solver.py+week_days 透传修复 → schedule_service.py+operations 依赖重挂修复（F2 已并入计划）→ 清单回写+计划 3 最终审查。
 4. **3B1 移交 6 条现状**：第 1 条（重同步悬空）已由 Task 4 计划覆盖修复；第 2/3/5/6 条随 Task 2~5 落地；第 4 条（operations Minor 5-10）留待 service 接入时一并处理。
+
+---
+
+# MPS 改造计划 3 执行记录与经验教训（3B2 完成 / 计划 3 收尾）
+
+- 日期：2026-10-17（续跑完成；首次会期 2026-10-16 至暂停点）
+- 分支：`mps-rework`
+- 计划：`docs/superpowers/plans/2026-10-14-mps-rework-plan3b2-aps-ga-persistence.md`
+
+## 一、执行摘要（3B2 完成）
+
+| 项 | 结果 |
+|---|---|
+| 完成范围 | **Task 2~5 全部完成**（Task 1 已于首次会期完成）：ga.py + PARAM_DEFS 增补；solver.py + week_days 透传修复；schedule_service.py + operations 依赖重挂修复；SCHED 清单回写 + 计划 3 收尾 |
+| 测试基线 | **189 passed, 1 skipped**（174→179→185→189，本批 +15；install 命令 `git push` 前置收尾见下） |
+| 提交序列 | `9b0a48c`(Task2 GA) → `6ab6101`(Task3 solver) → `8c72a64`(Task4 service) → 目录迁移 `0d5b617`（前置）→ 收尾文档提交 |
+| 主要交付物 | `app/mps/ga.py`（DEAP 序列搜索核心）、`app/mps/solver.py`（ga/deterministic/heuristic/cp_sat 门面）、`app/mps/schedule_service.py`（唯一碰 DB 的排产模块：载单→手工条并入→求解→批次/分配落库→订单回写） |
+| 接口改动 | `consts.py`/`context.py` 增 3 个 `ga_*` 参数；`strategy.py`/`schedule.py`/`aps.py` week_days 透传；`operations.py` `sync_order_operations` 依赖重挂 |
+| 测试 | 新增 test_mps_ga.py(5)、test_mps_solver.py(5)、test_mps_schedule_service.py(3)；改 test_consts.py(+3 断言)、test_mps_strategy.py(+1)、test_mps_schedule.py(改 1)、test_mps_operations.py(+1) |
+
+## 二、关键决策记录
+
+1. **GA 染色体 = 索引排列**：DEAP `tools.cxOrdered` 要求整数基因，故以 `list(range(n))` 的重排作染色体、索引映射回 passed（探针实证：直接以结果 dict 作基因不可行）。
+2. **确定性基准默认关 setup**：`deterministic` 仅传 strategy/P（+显式 setup 透传），与直接调用 `schedule_process_constrained` 逐条等价（CHK-SCHED-009），故 `metrics.setupTotal==0`；换型成本只在 GA/heuristic 评估口径计入。
+3. **CP-SAT 延后留痕**：`mode=="cp_sat"` 抛 `NotImplementedError("CP-SAT 延后（设计 D11，非验收基准）")`；验收以 GA + deterministic 为准。
+4. **随机流隔离**：`run_ga` 内 `random.seed` 前保存、结束恢复 `random.getstate()`，不污染全局随机流（多单串行排产可复现）。
+5. **D12 手工条服务管道接入**：`run_schedule` 读 manual 行（`depends_on_id`→前道 seq）→ `merge_manual_bars` 并入甘特参与排产 → 分配行按 manual 行 seq 升序与手工条一一关联 `operation_id`（免对象身份依赖）。
+6. **batch_no 单调**：`SCH-{YYYYMMDD}-{序号:03d}`（序号=同前缀最大+1）。
+7. **目录迁移（D:→F:）前置修复**：MPS 只读资料目录 `D:\MPS`→`F:\MPS`、项目 `D:\aps-hap`→`F:\aps-hap`。修复 5 个已跟踪文件硬编码路径并参数化 MPS 源目录（`MPS_DIR` 环境变量，默认 `F:\MPS`）；`worksheet_ids*.json` 改为相对本文件定位 `deploy/`；plan3b2 内 pytest/参照命令 D:→F:。修复后基线复现 174 passed。
+
+## 三、经验教训（本批次真实事件）
+
+1. **date 归一 bug（编制期已捕获）**：DB 直读 `date` 对象与 `"9999"` 哨兵字符串不可比——Task 1 已留痕修正。
+2. **cxOrdered 整数基因约束**：次序交叉只接受可比较整数基因，索引排列是正确解法。
+3. **HallOfFame deepcopy**：`tools.HallOfFame(1)` 内部 deepcopy 保管最优个体，避免后续世代原地变异污染最优。
+4. **手工条 operation_id 关联不依赖对象身份**：按 bars 顺序 + 计数对齐（seq 升序），稳健且可测。
+5. **回写类指令须对照目标文件**：checklist 为 6 列（测试用例在前、状态在后），按 F1 修正逐行列序核对后回写。
+6. **PowerShell 中文乱码**：统一 `$env:PYTHONIOENCODING="utf-8"`；必要时落盘读回。
+7. **Git 身份缺失（新机器）**：首次提交报 "Author identity unknown"，按仓库历史作者设仓库级 `user.name/email` 后恢复。
+
+## 四、3B1 移交项收口
+
+| # | 移交项 | 结论 |
+|---|---|---|
+| ① | 重同步悬空 | ✅ Task 4 修复（新增 `test_sync_rehang_manual_dependency`） |
+| ② | week_days 透传 | ✅ Task 3 修复（三处；新增 `test_order_by_priority_week_days_tiebreak`） |
+| ③ | warnings 序列化 | ✅ 随 solver/service 落地（`out["warnings"]` 外露） |
+| ④ | kanban 无 groups 空值防护 | ⏳ 留待计划 5（消费方：前端/API） |
+| ⑤ | SCHED 清单回写 | ✅ Task 5.1 完成（001~010 全「通过」，日期 2026-10-16 按计划表回写） |
+| ⑥ | operations Minor 5-10 | ⏳ 非阻塞，留待 API 层接入时处理 |
+
+## 五、开放问题（移交计划 4/5）
+
+1. `ga_*` 参数是否需前端参数页展示（`PARAM_DEFS` group="求解" 会随参数管理页自动出现）——待前端确认。
+2. deap 版本策略：锁定 `deap==1.4.4`（升级需复跑 GA 复现性用例）。
+3. 计划 3 最终审查：SCHED 十条全绿、无遗留「待实现」（除 PRIO-009/SYNC/UI/COL 等归后续计划）——见下节收尾报告。
+

@@ -524,7 +524,7 @@ $env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" 
 - Modify: `backend/tests/mps/test_consts.py`（快照 16→19）
 - Modify: `backend/requirements.txt`（+`deap==1.4.4`）
 
-- [ ] **Step 2.1: 编写失败测试**
+- [x] **Step 2.1: 编写失败测试**
 
 ```python
 """GA 序列搜索（DEAP）：索引排列染色体/种子/复现性/随机隔离/参数优先级（设计 D11）。"""
@@ -635,14 +635,14 @@ def test_param_defs_key_snapshot():
     }
 ```
 
-- [ ] **Step 2.2: 运行确认失败**
+- [x] **Step 2.2: 运行确认失败**
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_ga.py tests/mps/test_consts.py -q
 ```
 预期：ga 文件 collection error（无 `app.mps.ga`）；test_consts 两个快照/默认值断言失败（16≠19、缺 ga_*）。
 
-- [ ] **Step 2.3: 实现**
+- [x] **Step 2.3: 实现**
 
 1) `backend/requirements.txt` 末行追加：
 
@@ -762,9 +762,9 @@ def run_ga(passed, ctx, opts=None) -> dict:
             "seed": seed, "population": population, "generations": generations}
 ```
 
-- [ ] **Step 2.4: 运行确认通过**（预期：本文件 5 passed；test_consts 6 passed；全量 179 passed, 1 skipped）
+- [x] **Step 2.4: 运行确认通过**（预期：本文件 5 passed；test_consts 6 passed；全量 179 passed, 1 skipped）
 
-- [ ] **Step 2.5: 提交** `feat(mps): GA 序列搜索核心（DEAP）与 ga_* 参数`
+- [x] **Step 2.5: 提交** `feat(mps): GA 序列搜索核心（DEAP）与 ga_* 参数`
 
 ---
 
@@ -779,7 +779,7 @@ def run_ga(passed, ctx, opts=None) -> dict:
 - Modify: `backend/tests/mps/test_mps_strategy.py`（+1 测试）
 - Modify: `backend/tests/mps/test_mps_schedule.py`（test_order_opts_defaults 扩断言）
 
-- [ ] **Step 3.1: 编写失败测试**
+- [x] **Step 3.1: 编写失败测试**
 
 新建 `backend/tests/mps/test_mps_solver.py`：
 
@@ -911,14 +911,14 @@ def test_order_opts_defaults():
     assert o2["setupDiff"] == 0.5 and o2["due_buffer_days"] == 0 and o2["week_days"] == 6
 ```
 
-- [ ] **Step 3.2: 运行确认失败**
+- [x] **Step 3.2: 运行确认失败**
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_solver.py tests/mps/test_mps_strategy.py tests/mps/test_mps_schedule.py -q
 ```
 预期：solver 文件 collection error（无 `app.mps.solver`）；strategy 新测试失败（`week_days=3` 断言不成立）；schedule `test_order_opts_defaults` 失败（无 `week_days` 键）。
 
-- [ ] **Step 3.3: 实现**
+- [x] **Step 3.3: 实现**
 
 1) `backend/app/mps/strategy.py`：
 
@@ -1096,9 +1096,9 @@ def solve(results, ctx, opts=None) -> dict:
     }
 ```
 
-- [ ] **Step 3.4: 运行确认通过**（预期：solver 5 passed、strategy 9 passed、schedule 14 passed；全量 185 passed, 1 skipped）
+- [x] **Step 3.4: 运行确认通过**（预期：solver 5 passed、strategy 9 passed、schedule 14 passed；全量 185 passed, 1 skipped）
 
-- [ ] **Step 3.5: 提交** `feat(mps): 求解门面（ga/deterministic/heuristic）与 week_days 透传修复`
+- [x] **Step 3.5: 提交** `feat(mps): 求解门面（ga/deterministic/heuristic）与 week_days 透传修复`
 
 ---
 
@@ -1110,7 +1110,7 @@ def solve(results, ctx, opts=None) -> dict:
 - Modify: `backend/app/mps/operations.py`（`sync_order_operations` 手工行 depends 重挂）
 - Modify: `backend/tests/mps/test_mps_operations.py`（+1 测试）
 
-- [ ] **Step 4.1: 编写失败测试**
+- [x] **Step 4.1: 编写失败测试**
 
 新建 `backend/tests/mps/test_mps_schedule_service.py`（断言值全部来自探针实跑）：
 
@@ -1254,14 +1254,14 @@ async def test_sync_rehang_manual_dependency(sqlite_session):
     assert manual2.depends_on_id != old_seq2_id
 ```
 
-- [ ] **Step 4.2: 运行确认失败**
+- [x] **Step 4.2: 运行确认失败**
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_schedule_service.py tests/mps/test_mps_operations.py -q
 ```
 预期：service 文件 collection error（无 `app.mps.schedule_service`）；operations 新测试失败（`manual2.depends_on_id == rows2[1].id` 不成立——仍指向旧行）。
 
-- [ ] **Step 4.3: 实现**
+- [x] **Step 4.3: 实现**
 
 1) `backend/app/mps/operations.py` `sync_order_operations` 修复（重建前快照手工行目标 seq，重建后重挂；目标不存在→置 None）：
 
@@ -1443,15 +1443,15 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
             "allocation_rows": alloc_rows, "warnings": out["warnings"]}
 ```
 
-- [ ] **Step 4.4: 运行确认通过**（预期：service 3 passed、operations 8 passed；全量 189 passed, 1 skipped）
+- [x] **Step 4.4: 运行确认通过**（预期：service 3 passed、operations 8 passed；全量 189 passed, 1 skipped）
 
-- [ ] **Step 4.5: 提交** `feat(mps): 排产落库服务（批次/每日分配/订单回写）与工序依赖重挂修复`
+- [x] **Step 4.5: 提交** `feat(mps): 排产落库服务（批次/每日分配/订单回写）与工序依赖重挂修复`
 
 ---
 
 ### Task 5: 3B2 收尾（SCHED 清单回写 + 执行记录 + 计划 3 最终审查）
 
-- [ ] **Step 5.1: check-list 回写**：`docs/checklists/mps-logic-checklist.md` L92-101 的 CHK-SCHED-001~010 十行：前 4 列（编号/规则/来源/预期）保持；**第 5 列（测试用例）与第 6 列（状态）按下表更新**。注意目标表列序为「…｜测试用例｜状态」（测试用例在前、状态在后，勿写反）；第 5 列原预设的 `tests/mps/test_kernel_sched.py::...` 为编制期占位，一律替换为下表实测文件路径：
+- [x] **Step 5.1: check-list 回写**：`docs/checklists/mps-logic-checklist.md` L92-101 的 CHK-SCHED-001~010 十行：前 4 列（编号/规则/来源/预期）保持；**第 5 列（测试用例）与第 6 列（状态）按下表更新**。注意目标表列序为「…｜测试用例｜状态」（测试用例在前、状态在后，勿写反）；第 5 列原预设的 `tests/mps/test_kernel_sched.py::...` 为编制期占位，一律替换为下表实测文件路径：
 
 | 条目 | 第 5 列（测试用例·实测文件） | 第 6 列（状态） |
 | --- | --- | --- |
@@ -1466,15 +1466,15 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
 | CHK-SCHED-009 | `tests/mps/test_mps_solver.py::test_chk_sched_009_deterministic_equals_direct_call`、`tests/mps/test_mps_schedule.py::test_sched_009_strategy_order_and_deterministic` | 通过（2026-10-16 回写） |
 | CHK-SCHED-010 | `tests/mps/test_mps_schedule_service.py::test_chk_sched_010_batch_result_persistence` | 通过（2026-10-16 回写） |
 
-- [ ] **Step 5.2: 全量回归**（预期 189 passed, 1 skipped）：
+- [x] **Step 5.2: 全量回归**（预期 189 passed, 1 skipped）：
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -q
 ```
 
-- [ ] **Step 5.3: 执行记录**：`docs/superpowers/plans/2026-10-14-mps-rework-plan3-execution-log.md` 追加 3B2 节（摘要：4 模块 23 测试；决策：GA 索引排列/确定性默认关 setup/CP-SAT 延后/D12 手工条服务管道接入（run_schedule 读 manual 行 → merge_manual_bars）；教训：date 归一 bug、cxOrdered 整数基因、HallOfFame deepcopy、手工条 operation_id 按 append 顺序关联（免对象身份依赖）、PowerShell 中文乱码用 utf-8 环境变量与文件落盘读回；移交修复：operations 依赖重挂、week_days 透传）并提交。
+- [x] **Step 5.3: 执行记录**：`docs/superpowers/plans/2026-10-14-mps-rework-plan3-execution-log.md` 追加 3B2 节（摘要：4 模块 23 测试；决策：GA 索引排列/确定性默认关 setup/CP-SAT 延后/D12 手工条服务管道接入（run_schedule 读 manual 行 → merge_manual_bars）；教训：date 归一 bug、cxOrdered 整数基因、HallOfFame deepcopy、手工条 operation_id 按 append 顺序关联（免对象身份依赖）、PowerShell 中文乱码用 utf-8 环境变量与文件落盘读回；移交修复：operations 依赖重挂、week_days 透传）并提交。
 
-- [ ] **Step 5.4: 计划 3 最终审查**：核对 3A/3B1/3B2 三份计划自查项；确认 SCHED 十条全绿、无遗留"待实现"；向用户提交最终报告（计划含 Task 提交清单、测试计数演进 166→174→179→185→189、探针证据摘要、开放问题：`ga_*` 参数页是否需前端展示、deap 版本升级策略）。
+- [x] **Step 5.4: 计划 3 最终审查**：核对 3A/3B1/3B2 三份计划自查项；确认 SCHED 十条全绿、无遗留"待实现"；向用户提交最终报告（计划含 Task 提交清单、测试计数演进 166→174→179→185→189、探针证据摘要、开放问题：`ga_*` 参数页是否需前端展示、deap 版本升级策略）。
 
 ---
 

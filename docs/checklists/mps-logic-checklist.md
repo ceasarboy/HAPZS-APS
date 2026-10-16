@@ -89,16 +89,16 @@
 | CHK-PRIO-008 | 优先级批量操作快照：priority_batch 支持批量撤销 | 设计规格 D8；计划1 priority_batch 模型 | 批量变更可整体撤销 | tests/mps/test_mps_priority_service.py::test_batch_snapshot_and_undo、test_undo_datetime_roundtrip_and_double_undo | 通过 |
 | CHK-PRIO-009 | 排产优先级双向同步：拉取工单携带优先级、推送回写工单表单「排产优先级」 | 设计规格 D8/§7（回写清单） | 同步往返数值一致 | tests/mps/test_kernel_sync.py::test_chk_prio_009_priority_hap_sync | 待实现（计划4·明道云双向同步） |
 | CHK-PRIO-010 | 疑点·优先级与齐套/交期的组合排序语义：优先级、齐套时间、交期三者先后与跨齐套排序规则在 MPS 逻辑书与设计规格中均未定义 | 设计规格 §11·逻辑书未定义 | 待业务确认排产排序函数；先按参数双档实现 | tests/mps/test_mps_priority.py::test_cmp_order_eight_levels（现全序语义） | 阻塞(疑点·按现全序语义实现) |
-| CHK-SCHED-001 | 工序串行：同一工单工序级需求按「依赖前道ID」顺序执行，前道未完成不排后道 | 设计规格 §3（工序串行）/§4 order_operation | 解码结果满足串行依赖、无跨序开工 | tests/mps/test_kernel_sched.py::test_chk_sched_001_operation_serial_dependency | 待实现 |
-| CHK-SCHED-002 | 按日产能账本分配：每日分配数量不超过资源（级别\|工序\|模式）日产能 | 设计规格 §3（解码执行层） | 任意资源任一日累计分配≤日产能 | tests/mps/test_kernel_sched.py::test_chk_sched_002_daily_capacity_ledger | 待实现 |
-| CHK-SCHED-003 | 解码分流按订单实际批量动态判定（DB/WB 模块级20只/组件级10只阈值），不以参考批量1000判定 | V1.7 逻辑⑦⑪、周计划⑤；V1.6 §5.2 | 实际批量<阈值走半自动、≥阈值走自动 | tests/mps/test_kernel_sched.py::test_chk_sched_003_mode_by_actual_batch | 待实现 |
-| CHK-SCHED-004 | 齐套门槛：订单开工不早于物料齐套时间（硬约束，罚函数或修复实现） | 设计规格 §3（硬约束含齐套） | 齐套日之前的日期无分配 | tests/mps/test_kernel_sched.py::test_chk_sched_004_kitting_gate | 待实现 |
-| CHK-SCHED-005 | 分部件调度：M系列平行分部件并行生产不占主体周期；C系列前置分部件先于主体执行 | V1.7 逻辑③；设计规格 §8④ | 甘特呈现平行条/前置条且时序正确 | tests/mps/test_kernel_sched.py::test_chk_sched_005_subpart_parallel_prepose | 待实现 |
-| CHK-SCHED-006 | 返工/试制=追加工序级需求：既有工单手工新增工序需求（来源=手工追加），参与排产并占产能 | 设计规格 D12/§4/§8① | 追加需求生成、可排产 | tests/mps/test_kernel_sched.py::test_chk_sched_006_rework_extra_operation | 待实现 |
-| CHK-SCHED-007 | 换型/setup 天数纳入解码执行层（换线矩阵/换型天数参与资源占用） | 设计规格 §3（setup 天数） | 换型时按 setup 天数占用资源 | tests/mps/test_kernel_sched.py::test_chk_sched_007_setup_days | 待实现 |
-| CHK-SCHED-008 | 硬约束零违反：GA 罚函数/修复保证「产能不超、齐套、串行」零违反（验收口径） | 设计规格 §3/§10 验收2 | 任意批次结果硬约束零违反 | tests/mps/test_kernel_sched.py::test_chk_sched_008_hard_constraints_zero_violation | 待实现 |
-| CHK-SCHED-009 | 确定性基准：GA 关闭/无解时退化为确定性基准，输出与 mps-web 一致（验收对照） | 设计规格 D11/§3 | 基准模式输出与 mps-web schedule.js 一致 | tests/mps/test_kernel_sched.py::test_chk_sched_009_deterministic_baseline | 待实现 |
-| CHK-SCHED-010 | 排产批次与结果落库：schedule_batch（参数快照/KPI）与 schedule_result（每日分配明细、开始/完成日、瓶颈标记），支持历史/对比/推送 | 设计规格 §4 | 结果完整入库、可按批次追溯 | tests/mps/test_kernel_sched.py::test_chk_sched_010_batch_result_persistence | 待实现 |
+| CHK-SCHED-001 | 工序串行：同一工单工序级需求按「依赖前道ID」顺序执行，前道未完成不排后道 | 设计规格 §3（工序串行）/§4 order_operation | 解码结果满足串行依赖、无跨序开工 | tests/mps/test_mps_schedule.py::test_schedule_process_constrained_full_contract | 通过（2026-10-16 回写） |
+| CHK-SCHED-002 | 按日产能账本分配：每日分配数量不超过资源（级别\|工序\|模式）日产能 | 设计规格 §3（解码执行层） | 任意资源任一日累计分配≤日产能 | tests/mps/test_mps_schedule.py::test_alloc_earliest_basic_and_daily_spread、test_alloc_earliest_scan_gap_and_capacity_fit | 通过（2026-10-16 回写） |
+| CHK-SCHED-003 | 解码分流按订单实际批量动态判定（DB/WB 模块级20只/组件级10只阈值），不以参考批量1000判定 | V1.7 逻辑⑦⑪、周计划⑤；V1.6 §5.2 | 实际批量<阈值走半自动、≥阈值走自动 | tests/mps/test_mps_schedule.py::test_schedule_process_constrained_full_contract（按实际批量半分/自动断言） | 通过（2026-10-16 回写） |
+| CHK-SCHED-004 | 齐套门槛：订单开工不早于物料齐套时间（硬约束，罚函数或修复实现） | 设计规格 §3（硬约束含齐套） | 齐套日之前的日期无分配 | tests/mps/test_mps_schedule.py::test_sched_004_kit_gate | 通过（2026-10-16 回写） |
+| CHK-SCHED-005 | 分部件调度：M系列平行分部件并行生产不占主体周期；C系列前置分部件先于主体执行 | V1.7 逻辑③；设计规格 §8④ | 甘特呈现平行条/前置条且时序正确 | tests/mps/test_mps_schedule.py::test_sched_005_subpart_and_gantt_chart | 通过（2026-10-16 回写） |
+| CHK-SCHED-006 | 返工/试制=追加工序级需求：既有工单手工新增工序需求（来源=手工追加），参与排产并占产能 | 设计规格 D12/§4/§8① | 追加需求生成、可排产 | tests/mps/test_mps_operations.py::test_sched_006_rework_extra_operation | 通过（2026-10-16 回写） |
+| CHK-SCHED-007 | 换型/setup 天数纳入解码执行层（换线矩阵/换型天数参与资源占用） | 设计规格 §3（setup 天数） | 换型时按 setup 天数占用资源 | tests/mps/test_mps_schedule.py::test_sched_007_setup_days | 通过（2026-10-16 回写） |
+| CHK-SCHED-008 | 硬约束零违反：GA 罚函数/修复保证「产能不超、齐套、串行」零违反（验收口径） | 设计规格 §3/§10 验收2 | 任意批次结果硬约束零违反 | tests/mps/test_mps_solver.py::test_chk_sched_008_ga_mode_contract、tests/mps/test_mps_schedule.py::test_schedule_process_constrained_full_contract（capViolations） | 通过（2026-10-16 回写） |
+| CHK-SCHED-009 | 确定性基准：GA 关闭/无解时退化为确定性基准，输出与 mps-web 一致（验收对照） | 设计规格 D11/§3 | 基准模式输出与 mps-web schedule.js 一致 | tests/mps/test_mps_solver.py::test_chk_sched_009_deterministic_equals_direct_call、tests/mps/test_mps_schedule.py::test_sched_009_strategy_order_and_deterministic | 通过（2026-10-16 回写） |
+| CHK-SCHED-010 | 排产批次与结果落库：schedule_batch（参数快照/KPI）与 schedule_result（每日分配明细、开始/完成日、瓶颈标记），支持历史/对比/推送 | 设计规格 §4 | 结果完整入库、可按批次追溯 | tests/mps/test_mps_schedule_service.py::test_chk_sched_010_batch_result_persistence | 通过（2026-10-16 回写） |
 | CHK-SYNC-001 | 映射配置流程：手动输入表单ID → 后端读表单结构 → 自动匹配（按中文名/别名相似度+置信度）→ 手动调整个别字段 → 保存入库；同步引擎从数据库读映射（去硬编码 TABLE_HAP_MAP） | 设计规格 D4/§3/§6 | 全流程走通：置信度展示、未识别字段高亮 | tests/mps/test_kernel_sync.py::test_chk_sync_001_mapping_flow | 待实现 |
 | CHK-SYNC-002 | 密钥安全：AppKey/Sign Fernet 加密存储、API 仅回 configured/updated_at、永不回显明文、修改须重新输入 | 设计规格 D5/§6 | 任意接口响应不含密钥字符 | tests/mps/test_kernel_sync.py::test_chk_sync_002_secret_never_echoed | 待实现 |
 | CHK-SYNC-003 | 双向同步：拉取工单/主数据（按 hap_row_id upsert）；推送排产结果回写工单表单（按 sync_status create/update/delete） | 设计规格 D2/D9/§7 | 拉取幂等；回写字段与映射配置一致 | tests/mps/test_kernel_sync.py::test_chk_sync_003_bidirectional_sync | 待实现 |
