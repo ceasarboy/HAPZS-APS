@@ -103,3 +103,42 @@
 4. **operations Minor 5-10**：评审遗留次要项（非阻塞）留待 service 接入时一并处理；
 5. **SCHED 清单回写归 3B2**（001~009 随本批实现完成；010 随 schedule_service）；
 6. **回调契约（3B2 消费）**：`schedule_process_constrained(results, base, opts)`、`gantt_chart(planned, {"base_date": …})`、`ledger`/`fluxOf`（周负荷与看板共用）、`merge_manual_bars`。
+
+---
+
+# MPS 改造计划 3 执行记录与经验教训（3B2：APS·GA·求解门面·排产落库，进行中）
+
+- 日期：2026-10-16（首次会期；本批 Task 2~5 待续）
+- 分支：`mps-rework`
+- 计划：`docs/superpowers/plans/2026-10-14-mps-rework-plan3b2-aps-ga-persistence.md`（编制并独立审查修正，`d2c2a10`）
+
+## 一、执行摘要（3B2，至暂停点）
+
+| 项 | 结果 |
+|---|---|
+| 完成范围 | ①计划编制+独立审查+修正（`d2c2a10`）；②Task 1（`aps.py` 移植）实现+勾选（`bbbcc13`/`9fd31c7`）；Task 2~5 未开始 |
+| 测试基线 | **174 passed, 1 skipped**（166 → 174，Task1 +8） |
+| 待推送 | origin 落后 3 个提交（`d2c2a10`/`bbbcc13`/`9fd31c7`）——网络中断（github 443 连接失败），续跑首步重试 `git push` |
+| 审查状态 | 计划独立审查 ✅（隔离工作区计划代码块实跑 57/57 全绿；修正 4 项已并入计划）；Task 1 规格审查 ✅ 合规（镜像逐字一致、独立复算全吻合，5 项非阻断建议）；Task 1 质量审查 ⏸ 会话中止未完成，续跑重发 |
+
+## 二、关键决策与修正留痕（计划独立审查产物，已入 `d2c2a10`）
+
+1. **F1 清单回写列序修正**：check-list 实为 6 列（…｜测试用例｜状态）。计划原说明"前 6 列保持/状态在前"机械套用会写反 → Step 5.1 改为"前 4 列保持；第 5 列=测试用例（实测文件）、第 6 列=状态"，并声明预设 `test_kernel_sched.py` 路径为编制期占位。
+2. **F2 D12 契约缺口（实装修正）**：原计划 `run_schedule` 未消费 `merge_manual_bars`（手工条不参与服务端排产，与 docstring/Self-Review 声明不符）→ Task 4 实装：载入 manual 行（`depends_on_id`→前道 seq）→ `merge_manual_bars` 并入 → 分配行按 manual 行顺序（seq 升序）与手工条一一关联 `operation_id`（免对象身份依赖）；新增服务级测试 `test_run_schedule_manual_operation_participates`（探针实证：37 行=32+5、手工条 2026-06-28 起 5 天、每天 1052/5、该资源键合计 2104）；计数 188→189。
+3. **F3 micro 差异补录**：`产能闸值超 1.0`（JS 渲染 `1`）写入 `aps.py` docstring 差异清单。
+4. **F4 注释修正**：ga 测试"输入序（=GT 序）"不准确 → 输入序（优先序）目标；GT 序另见种子用例。
+
+## 三、经验教训（本批次真实事件）
+
+1. **计划独立审查高 ROI（保留为 3B2 默认动作）**：审查员在隔离 temp 工作区按计划补丁组装临时仓库，把计划全部代码块实跑 57/57 全绿 + 逐条复算数值 + 逐函数对照 `aps.js` → 执行前有实证底气。本次抓 4 项；其中 **F2 属"自检声明与代码调用链不符"类缺陷——模块存在≠被消费，声明必须沿调用链核对**。
+2. **回写类指令必须对照目标文件实证**：F1（列数/列序）若不打开 checklist 实际表头核对，机械回写必错。
+3. **渲染差异要穷举**：F3 表明"数值相等≠文案一致"（`1` vs `1.0`），移植差异清单须覆盖字符串渲染。
+4. **探针先行再次命中**：编制期探针抓出 date 归一 bug（DB 直读 `date` 与 `"9999"` 哨兵不可比）；F2 修正亦先探针实证期望值（37/2104/06-28）再改计划，未二次返工。
+5. **网络中断留痕续跑**：推送连续失败不停滞主线程（继续 Task 1 实现），本地垒好分段提交后暂停；续跑首步=重试 push（先例：3B1 期间同故障重试即通）。
+
+## 四、未决事项与续跑指南（3B2 续跑）
+
+1. **首步：重试推送**（3 个提交：`d2c2a10`/`bbbcc13`/`9fd31c7`）。
+2. **Task 1 质量审查重发**（本次未完成）；规格审查 5 项非阻断建议择要跟进（入"质量跟进"提交）：①评估隔离断言（`assert "plan" not in r`，变异实验证明现测试不钉此项）；②`aps_optimize` 改进分支（fixture 下不可达）留痕即可；③门控缺 kit_date/`cap_threshold` 覆盖可补轻量用例；④use_peak/peak_factor、base_date 缺省、setup=False 覆盖（可选）。
+3. **Task 2~5 依计划执行**：ga.py（DEAP）+PARAM_DEFS+`deap==1.4.4` 入 requirements → solver.py+week_days 透传修复 → schedule_service.py+operations 依赖重挂修复（F2 已并入计划）→ 清单回写+计划 3 最终审查。
+4. **3B1 移交 6 条现状**：第 1 条（重同步悬空）已由 Task 4 计划覆盖修复；第 2/3/5/6 条随 Task 2~5 落地；第 4 条（operations Minor 5-10）留待 service 接入时一并处理。
