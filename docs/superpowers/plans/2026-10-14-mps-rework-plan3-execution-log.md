@@ -199,3 +199,20 @@
 2. deap 版本策略：锁定 `deap==1.4.4`（升级需复跑 GA 复现性用例）。
 3. 计划 3 最终审查：SCHED 十条全绿、无遗留「待实现」（除 PRIO-009/SYNC/UI/COL 等归后续计划）——见下节收尾报告。
 
+## 六、质量审查（本次实现，独立评审）
+
+- 方式：独立评审员用脚本抽取计划全部 ```python 代码块与实际文件做 unified diff，逐条复算边界用例，grep 核对清单引用的用例名，并实跑测试。
+- 结论：**无阻断级缺陷，可进入计划 4**。`ga.py`/`solver.py`/`schedule_service.py` 及 `operations.py` 修复、`strategy.py`/`schedule.py`/`aps.py` 透传、3 个测试文件与计划代码块**逐字一致**（diff 无实质偏差）；任务书列举的边界（GA 索引排列/种子/seed=0/随机隔离/improved 阈值；solver 确定性等价/异常文案/objective≤baseline；service 单事务/batch_no 单调/operation_id 关联/逐日拆分/回写；operations 依赖重挂）全部验证正确；`depends_on_id` 无 FK，先删后挂不触发外键违例（PG 双库无忧）。实跑：本批 3 文件 13 passed；全量 189 passed, 1 skipped。
+
+**本次采纳的更正**：计划文本「`orders` 回写 16 字段」订正为「15 字段」（与 `schedule_service.py` 实现、Task 4 断言及 `2026-10-14-mingdao-app-bootstrap.md`「核算回写 15」一致）。
+
+**留待计划 4 处理（重要，非阻断）**：
+1. `batch_no` 词法单调在**单日 >999 批次**时失效（`order_by(batch_no.desc())` 词法序；`-999`>`-1000`）——单日重排 >999 不现实，计划 4 批量重跑/多基准对比时改纯数字排序或加宽位数。
+2. `run_schedule` 隐式依赖调用方先 `sync_order_operations`（否则自动条 `operation_id=None` 且手工条不并入）——计划 4 API 契约固化前置步骤或在入口断言。
+3. GA `improved=True` 分支在现有夹具下不可达（两种子目标恒等）——计划 4/5 造可改进夹具覆盖该分支。
+4. 测试覆盖缺口：`run_ga` 不传 `weights`（KeyError）、`seeds` 数 > population 截断、非完整排列种子；solver `improved=True` ga/heuristic 文案、`weights` 覆盖、deterministic 显式 setup；service batch_no≥003、缺工作中心手工条缺 flux、同单多手工条、ga+手工条组合、事务回滚；operations 手工→手工依赖清空留痕。计划 4 按需补。
+5. `CHK-SCHED-010` 第 2 列（规则描述）仍写 `schedule_result`，实际模型/表为 `ScheduleAllocation`/`schedule_allocations`（Task 5 仅改第 5/6 列）——计划 4 顺手订正描述列。
+
+**次要**（不处理，留痕）：`ga.py` `weights` 无缺省（独立调用易 KeyError）、`solver.py` heuristic `seed≤0` 用全局 `random` 未还原（与 `run_ga` 隔离策略不一致）、`1e-9`/`0.5`/默认 `30/20/42` 字面量重复、`ga.py` 对 `n<2` 无护栏。
+
+

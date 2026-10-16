@@ -16,7 +16,7 @@
 
 - `solver.solve(results, ctx, opts)` → `{method, solver{mode,seed,population,generations,improved,objective,baseline_objective}, strategy{id,name,allocPolicy,objective,desc}, strategyMetrics, gate{passed,blocked,warned,counts}, sequence[order_no], schedule[planned], load, lineBottleneck, metrics, baseline{metrics,delta}, params, gantt, decode{ledger,fluxOf,capViolations}, warnings}`
 - `schedule_service.run_schedule(session, base_date, opts)` → `{batch_id, batch_no, base_date, solver_mode, strategy_id, kpi, solver, order_count, allocation_rows, warnings}`
-- 落库：`schedule_batch`（batch_no/params_snapshot/kpi）、`schedule_allocation`（按日分配明细：resource_key/work_date/qty/operation_id）、`orders` 回写 16 字段。
+- 落库：`schedule_batch`（batch_no/params_snapshot/kpi）、`schedule_allocation`（按日分配明细：resource_key/work_date/qty/operation_id）、`orders` 回写 15 字段。
 
 **探针实证（2026-10-16，本计划所有断言值均由此产出）：** 临时探针 `probe_aps.py`/`probe_ga.py`/`probe_service.py`/`probe_ops.py`（`C:\Users\17970\AppData\Local\Temp\opencode\`，仅作证据不入库）。要点：
 
@@ -25,7 +25,7 @@
 - DEAP `tools.HallOfFame.insert` 内部 `deepcopy`；GA 以 `random.seed` 前保存 `random.getstate()`、后 `setstate` 恢复，实测全局随机流不受污染。
 - `run_ga`（5 单/2 族夹具，pop8/gen3/seed42）两次运行结果一致 `[WO-4,WO-2,WO-5,WO-3,WO-1]`、objective==baseline==6.003333205390996（无改进）；`seed=0 → None`；pop2/gen0 时最优=第一个种子序列。
 - `solve` deterministic 与直接 `schedule_process_constrained` 输出逐条相等（equal=True）；heuristic 复现一致；cp_sat→NotImplementedError、未知模式→ValueError、空 passed→ValueError（文案见测试）。
-- `run_schedule` 实跑：batch_no `SCH-20260601-001/002` 递增、deterministic 32 行分配（A 27 + B 5）、按日 qty 合计=1.052×60 特征量口径、订单回写 16 字段实测值全部取得（见 Task 4 测试断言）。
+- `run_schedule` 实跑：batch_no `SCH-20260601-001/002` 递增、deterministic 32 行分配（A 27 + B 5）、按日 qty 合计=1.052×60 特征量口径、订单回写 15 字段实测值全部取得（见 Task 4 测试断言）。
 - `sync_order_operations` 重同步后手工行 `depends_on_id` 指向已删除的旧自动行（悬挂）——探针实证该 3B1 移交缺陷，Task 4 修复（重挂到新自动行 id）。
 
 **基线：** `166 passed, 1 skipped`（本计划前，实测 27.3s；内嵌 Python + `python -m pytest tests -q`，workdir=backend）。
