@@ -79,16 +79,16 @@
 | CHK-FLUX-016A | 疑点·BOM特征数据源A：工单行（样本24列逐单携带 N_b~N_a 与胶水/引线类型数；设计规格 D13 首版存工单行） | 样本24列字段；设计规格 D13/§4 order | 特征从工单行读取，缺列时才提示缺参 | tests/mps/test_kernel_calc.py::test_chk_calc_002_m02_2d_yield_feed_delivery（特征读自工单行） | 阻塞(疑点·按工单行实现) |
 | CHK-FLUX-016B | 疑点·BOM特征数据源B：采集表（V1.6 §5.3/表格5、V1.7 逻辑注：特征按产品级别录入●装配周期核算表，工单行不携带） | V1.6 §5.3（表格5）；V1.7 逻辑注（"缺BOM特征参数"提示） | 特征从采集表按产品匹配，未录工序提示「缺BOM特征参数」 | —（采集表数据源未实现；后续可加产品特征主档） | 阻塞(疑点·待后续) |
 | CHK-FLUX-017 | 第2组特征列：N_die-2/DB第2组胶水类型数/N_wire-2/WB第2组引线类型数随工单行导入，按组折算（Y_die2/Y_wire2；M10-POP 等双组工艺） | 计划1 Task6 FEATURE_MAP/FEATURE_FIELDS（特征别名表） | 双组特征各自参与对应组通量折算 | tests/mps/test_kernel_units.py::test_conv_factor_db_wb、test_conv_factor_wb_second_group_and_default | 通过 |
-| CHK-PRIO-001 | 排产优先级字段：整数、数字越小越优先、0=置顶（样本第10列「排产优先级(数字越小越优先)」→ order.priority） | 样本24列；设计规格 §4 order | 数值升序可比较；0 视为置顶 | tests/mps/test_kernel_prio.py::test_chk_prio_001_priority_numeric_order | 待实现 |
-| CHK-PRIO-002 | 物料齐套时间字段：样本第9列 → order.kit_date，作为排产最早开工输入（约束语义见 CHK-SCHED-004） | 样本24列；设计规格 §4 order | 齐套日期正确入库并供排产读取 | tests/mps/test_kernel_prio.py::test_chk_prio_002_kitting_date_field | 待实现 |
-| CHK-PRIO-003 | 优先级引擎 6 因子评分：自动计算 prio_score（1:1 移植 mps-web priority.js） | 设计规格 D8/§3；计划1 order 模型字段 | 评分字段生成且可复算 | tests/mps/test_kernel_prio.py::test_chk_prio_003_six_factor_score | 待实现 |
-| CHK-PRIO-004 | 优先级级别 P0~P3：评分映射级别（prio_level）并在工单管理页展示 | 设计规格 D8/§8① | 评分→级别映射一致 | tests/mps/test_kernel_prio.py::test_chk_prio_004_p0_p3_level | 待实现 |
-| CHK-PRIO-005 | 置顶机制：pinned 置顶、pinned_until 到期失效，记录 pinned_at/pinned_by | 设计规格 D8；计划1 order 字段 | 置顶期间排序最前，到期自动恢复 | tests/mps/test_kernel_prio.py::test_chk_prio_005_pin_until | 待实现 |
-| CHK-PRIO-006 | 拖拽排序：sort_no 浮点序号持久化，拖拽后顺序稳定 | 设计规格 D8；计划1 order 字段 | 拖拽顺序入库且可复现 | tests/mps/test_kernel_prio.py::test_chk_prio_006_drag_sort_no | 待实现 |
-| CHK-PRIO-007 | 优先级变更审计日志：priority_log 记录原/新优先级、原/新拖拽序、操作人与时间 | 设计规格 D8；计划1 priority_log 模型 | 每次变更留痕、可追溯 | tests/mps/test_kernel_prio.py::test_chk_prio_007_priority_audit_log | 待实现 |
-| CHK-PRIO-008 | 优先级批量操作快照：priority_batch 支持批量撤销 | 设计规格 D8；计划1 priority_batch 模型 | 批量变更可整体撤销 | tests/mps/test_kernel_prio.py::test_chk_prio_008_batch_undo_snapshot | 待实现 |
-| CHK-PRIO-009 | 排产优先级双向同步：拉取工单携带优先级、推送回写工单表单「排产优先级」 | 设计规格 D8/§7（回写清单） | 同步往返数值一致 | tests/mps/test_kernel_prio.py::test_chk_prio_009_priority_hap_sync | 待实现 |
-| CHK-PRIO-010 | 疑点·优先级与齐套/交期的组合排序语义：优先级、齐套时间、交期三者先后与跨齐套排序规则在 MPS 逻辑书与设计规格中均未定义 | 设计规格 §11·逻辑书未定义 | 待业务确认排产排序函数；先按参数双档实现 | tests/mps/test_kernel_prio.py::test_chk_prio_010_priority_kitting_semantics | 阻塞(疑点) |
+| CHK-PRIO-001 | 排产优先级字段：整数、数字越小越优先、0=置顶（样本第10列「排产优先级(数字越小越优先)」→ order.priority） | 样本24列；设计规格 §4 order | 数值升序可比较；0 视为置顶 | tests/mps/test_mps_priority.py::test_cmp_order_eight_levels、test_sort_stability_shuffled | 通过 |
+| CHK-PRIO-002 | 物料齐套时间字段：样本第9列 → order.kit_date，作为排产最早开工输入（约束语义见 CHK-SCHED-004） | 样本24列；设计规格 §4 order | 齐套日期正确入库并供排产读取 | tests/mps/test_seed_loader.py::test_seed_demo_orders_once、tests/mps/test_mps_priority.py::test_score_factors_kit_and_dependency | 通过 |
+| CHK-PRIO-003 | 优先级引擎 6 因子评分：自动计算 prio_score（1:1 移植 mps-web priority.js） | 设计规格 D8/§3；计划1 order 模型字段 | 评分字段生成且可复算 | tests/mps/test_mps_priority.py::test_score_factors_overdue_and_urgent、test_score_factors_kit_and_dependency、test_score_factors_slack_buckets、test_evaluate_literal_and_bool_num | 通过 |
+| CHK-PRIO-004 | 优先级级别 P0~P3：评分映射级别（prio_level）并在工单管理页展示 | 设计规格 D8/§8① | 评分→级别映射一致 | tests/mps/test_mps_priority.py::test_level_and_priority_mapping、test_evaluate_end_to_end | 通过 |
+| CHK-PRIO-005 | 置顶机制：pinned 置顶、pinned_until 到期失效，记录 pinned_at/pinned_by | 设计规格 D8；计划1 order 字段 | 置顶期间排序最前，到期自动恢复 | tests/mps/test_mps_priority_service.py::test_pin_sets_fields_and_logs、test_expire_pins_only_past | 通过 |
+| CHK-PRIO-006 | 拖拽排序：sort_no 浮点序号持久化，拖拽后顺序稳定 | 设计规格 D8；计划1 order 字段 | 拖拽顺序入库且可复现 | tests/mps/test_mps_priority_service.py::test_reorder_pinned_drag_out_and_status_guard、tests/mps/test_mps_priority.py::test_reorder_target_pinned_and_normal | 通过 |
+| CHK-PRIO-007 | 优先级变更审计日志：priority_log 记录原/新优先级、原/新拖拽序、操作人与时间 | 设计规格 D8；计划1 priority_log 模型 | 每次变更留痕、可追溯 | tests/mps/test_mps_priority_service.py::test_pin_sets_fields_and_logs、test_reorder_pinned_drag_out_and_status_guard | 通过 |
+| CHK-PRIO-008 | 优先级批量操作快照：priority_batch 支持批量撤销 | 设计规格 D8；计划1 priority_batch 模型 | 批量变更可整体撤销 | tests/mps/test_mps_priority_service.py::test_batch_snapshot_and_undo、test_undo_datetime_roundtrip_and_double_undo | 通过 |
+| CHK-PRIO-009 | 排产优先级双向同步：拉取工单携带优先级、推送回写工单表单「排产优先级」 | 设计规格 D8/§7（回写清单） | 同步往返数值一致 | tests/mps/test_kernel_sync.py::test_chk_prio_009_priority_hap_sync | 待实现（计划4·明道云双向同步） |
+| CHK-PRIO-010 | 疑点·优先级与齐套/交期的组合排序语义：优先级、齐套时间、交期三者先后与跨齐套排序规则在 MPS 逻辑书与设计规格中均未定义 | 设计规格 §11·逻辑书未定义 | 待业务确认排产排序函数；先按参数双档实现 | tests/mps/test_mps_priority.py::test_cmp_order_eight_levels（现全序语义） | 阻塞(疑点·按现全序语义实现) |
 | CHK-SCHED-001 | 工序串行：同一工单工序级需求按「依赖前道ID」顺序执行，前道未完成不排后道 | 设计规格 §3（工序串行）/§4 order_operation | 解码结果满足串行依赖、无跨序开工 | tests/mps/test_kernel_sched.py::test_chk_sched_001_operation_serial_dependency | 待实现 |
 | CHK-SCHED-002 | 按日产能账本分配：每日分配数量不超过资源（级别\|工序\|模式）日产能 | 设计规格 §3（解码执行层） | 任意资源任一日累计分配≤日产能 | tests/mps/test_kernel_sched.py::test_chk_sched_002_daily_capacity_ledger | 待实现 |
 | CHK-SCHED-003 | 解码分流按订单实际批量动态判定（DB/WB 模块级20只/组件级10只阈值），不以参考批量1000判定 | V1.7 逻辑⑦⑪、周计划⑤；V1.6 §5.2 | 实际批量<阈值走半自动、≥阈值走自动 | tests/mps/test_kernel_sched.py::test_chk_sched_003_mode_by_actual_batch | 待实现 |

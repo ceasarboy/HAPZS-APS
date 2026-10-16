@@ -22,13 +22,29 @@
 
 ---
 
+## 执行状态（截至 2026-10-14）
+
+| Task | 状态 | 提交 |
+|---|---|---|
+| 1 日期工具 | ✅ 完成 | `afaa82c` |
+| 2 优先级评分第一批 | ✅ 完成 | `0138165` |
+| 3 排序与重算 + kernel 透传（含评审跟进） | ✅ 完成 | `8a49226` `b36eeae` `f646c17` |
+| 4 持久化服务（含评审跟进） | ✅ 完成 | `baf1016` `4599499` |
+| 5 策略层（含评审跟进） | ✅ 完成 | `db88703` `7c5e170` |
+| 6 收尾（清单回写 PRIO + 执行记录） | ✅ 完成 | 本批 |
+
+- 测试基线：**139 passed, 1 skipped**（内嵌 Python 3.13.5）。
+- 下一步：计划 3B（排产解码与求解：schedule.js 移植/operations/kanban/aps+GA/SCHED-010 落库）。
+
+---
+
 ### Task 1: 日期工具（dates.py）
 
 **Files:**
 - Create: `backend/app/mps/dates.py`
 - Create: `backend/tests/mps/test_mps_dates.py`
 
-- [ ] **Step 1.1: 编写失败测试**
+- [x] **Step 1.1: 编写失败测试**
 
 `backend/tests/mps/test_mps_dates.py`：
 ```python
@@ -63,9 +79,9 @@ def test_diff_days():
     assert DAY == 86400000
 ```
 
-- [ ] **Step 1.2: 运行确认失败** → `ModuleNotFoundError: app.mps.dates`
+- [x] **Step 1.2: 运行确认失败** → `ModuleNotFoundError: app.mps.dates`
 
-- [ ] **Step 1.3: 创建 `backend/app/mps/dates.py`**
+- [x] **Step 1.3: 创建 `backend/app/mps/dates.py`**
 
 ```python
 """MPS 排产日期工具（移植自 mps-web schedule.js:19-41 / priority.js:53-75 的 UTC 日期函数）。
@@ -116,8 +132,8 @@ def diff_days(a, b):
     return (db - da).days
 ```
 
-- [ ] **Step 1.4: 运行确认通过** → `... -m pytest tests/mps/test_mps_dates.py -v`（预期 3 passed）；全量 `... -m pytest tests -q`（预期 108 passed）
-- [ ] **Step 1.5: 提交** `feat(mps): 共享日期工具 dates.py（复刻 JS 半上取整）`
+- [x] **Step 1.4: 运行确认通过** → `... -m pytest tests/mps/test_mps_dates.py -v`（预期 3 passed）；全量 `... -m pytest tests -q`（预期 108 passed）
+- [x] **Step 1.5: 提交** `feat(mps): 共享日期工具 dates.py（复刻 JS 半上取整）`
 
 ---
 
@@ -127,7 +143,7 @@ def diff_days(a, b):
 - Create: `backend/app/mps/priority.py`
 - Create: `backend/tests/mps/test_mps_priority.py`
 
-- [ ] **Step 2.1: 编写失败测试（评分/分级/映射）**
+- [x] **Step 2.1: 编写失败测试（评分/分级/映射）**
 
 ```python
 """优先级纯核心①：6 因子评分 / 分级 / 数值映射（移植 priority.js §2）。"""
@@ -219,9 +235,9 @@ def test_evaluate_end_to_end():
 
 **注意**：`test_score_factors_slack_buckets` 的 `add` 已在函数顶部导入（保持自包含可运行）。
 
-- [ ] **Step 2.2: 运行确认失败** → `ModuleNotFoundError: app.mps.priority`
+- [x] **Step 2.2: 运行确认失败** → `ModuleNotFoundError: app.mps.priority`
 
-- [ ] **Step 2.3: 创建 `backend/app/mps/priority.py`（第一批）**
+- [x] **Step 2.3: 创建 `backend/app/mps/priority.py`（第一批）**
 
 ```python
 """项目（工单）优先级纯计算层（移植自 mps-web src/priority.js；不写库）。
@@ -396,8 +412,8 @@ def evaluate(order, calc, cfg=None, today=None) -> dict:
     return {"score": f["score"], "level": level, "priority": priority_of(level, f["score"]), "factors": f}
 ```
 
-- [ ] **Step 2.4: 运行确认通过** → `... -m pytest tests/mps/test_mps_priority.py -v`（预期 6 passed）；全量（预期 114 passed）
-- [ ] **Step 2.5: 提交** `feat(mps): 优先级纯核心①——6因子评分/分级/数值映射`
+- [x] **Step 2.4: 运行确认通过** → `... -m pytest tests/mps/test_mps_priority.py -v`（预期 6 passed）；全量（预期 114 passed）
+- [x] **Step 2.5: 提交** `feat(mps): 优先级纯核心①——6因子评分/分级/数值映射`
 
 ---
 
@@ -410,7 +426,7 @@ def evaluate(order, calc, cfg=None, today=None) -> dict:
 - Modify: `backend/tests/mps/test_kernel_calc.py`（追加透传测试）
 - Modify: `docs/superpowers/plans/2026-10-14-mps-rework-plan2-calc-kernel.md`（kernel 代码块与差异清单镜像同步）
 
-- [ ] **Step 3.0: 评审跟进修正（Task 1+2 遗留，随本任务落地）**
+- [x] **Step 3.0: 评审跟进修正（Task 1+2 遗留，随本任务落地）**
 
 1. `app/mps/dates.py`：`to_date` 增加 datetime 分支（datetime 是 date 子类），顶部 `from datetime import date, datetime`：
 ```python
@@ -443,7 +459,7 @@ def test_evaluate_literal_and_bool_num():
     assert _num(True, 0) == 1.0 and _num(False, 7) == 0.0     # kernel 置顶 bool 透传承重点
 ```
 
-- [ ] **Step 3.1: 追加失败测试**
+- [x] **Step 3.1: 追加失败测试**
 
 `test_mps_priority.py` 追加：
 ```python
@@ -575,9 +591,9 @@ def test_order_priority_passthrough():
     assert calc_order(_order(), _ctx_m02_2d())["order"]["pinned_at"] == ""
 ```
 
-- [ ] **Step 3.2: 运行确认失败** → 缺函数/字段
+- [x] **Step 3.2: 运行确认失败** → 缺函数/字段
 
-- [ ] **Step 3.3: priority.py 追加实现**
+- [x] **Step 3.3: priority.py 追加实现**
 
 ```python
 def sort_key(o) -> dict:
@@ -727,7 +743,7 @@ def reorder_target(order, prev, next_, to_pinned) -> dict:
     return {"pinned": 0, "priority": p, "sort_no": None, "level": level_of_priority(p), "source": "manual"}
 ```
 
-- [ ] **Step 3.4: kernel.py 透传字段（+ 计划 2 镜像同步）**
+- [x] **Step 3.4: kernel.py 透传字段（+ 计划 2 镜像同步）**
 
 `kernel.calc_order` 的 return 中 `"order"` 块改为（在原字段基础上追加；对齐 engine.js:163-171 + 本模型扩展）；同时新增 `_fmt_dt` 帮助函数（放在 `_parse_due` 附近）保证 `pinned_at` 恒为 `'YYYY-MM-DD'` 字符串（cmp 键依赖字符串比较，禁止 datetime 直通）：
 ```python
@@ -756,10 +772,10 @@ def _fmt_dt(v) -> str:
 ```
 同步修改 kernel.py 模块 docstring 的"字段裁剪"清单：删除"未移植 order 的优先级透传字段"一行（改为已透传），并在 `docs/superpowers/plans/2026-10-14-mps-rework-plan2-calc-kernel.md` 的 kernel 代码块与差异清单做相同镜像修改。
 
-- [ ] **Step 3.5: 运行确认通过**
+- [x] **Step 3.5: 运行确认通过**
 - 定向：`... -m pytest tests/mps/test_mps_priority.py tests/mps/test_kernel_calc.py -v`（预期 12 + 19 passed）
 - 全量：`... -m pytest tests -q`（预期 123 passed, 1 skipped：基线 114 + 本任务 9 用例，含质量跟进 +1）
-- [ ] **Step 3.6: 提交** `feat(mps): 优先级纯核心②（8级全序/重算/拖拽）+ kernel 优先级透传接口`
+- [x] **Step 3.6: 提交** `feat(mps): 优先级纯核心②（8级全序/重算/拖拽）+ kernel 优先级透传接口`
 
 ---
 
@@ -769,7 +785,7 @@ def _fmt_dt(v) -> str:
 - Create: `backend/app/mps/priority_service.py`
 - Create: `backend/tests/mps/test_mps_priority_service.py`
 
-- [ ] **Step 4.1: 编写失败测试（PRIO-005/007/008）**
+- [x] **Step 4.1: 编写失败测试（PRIO-005/007/008）**
 
 ```python
 """优先级持久化服务：置顶/到期解除/拖拽/审计日志/批量快照撤销。"""
@@ -904,9 +920,9 @@ async def test_undo_datetime_roundtrip_and_double_undo(sqlite_session):
     assert await undo_batch(sqlite_session, b.batch_id) == 0     # 已撤销批次再撤销 → 0
 ```
 
-- [ ] **Step 4.2: 运行确认失败**
+- [x] **Step 4.2: 运行确认失败**
 
-- [ ] **Step 4.3: 创建 `backend/app/mps/priority_service.py`**
+- [x] **Step 4.3: 创建 `backend/app/mps/priority_service.py`**
 
 ```python
 """优先级持久化服务（对应 mps-web server.js 编排职责；异步 SQLAlchemy）。
@@ -1109,10 +1125,10 @@ async def undo_batch(session: AsyncSession, batch_id: str, operator: str = "syst
     return restored
 ```
 
-- [ ] **Step 4.4: 运行确认通过** → 定向 8 passed（首发 5 + 跟进 3）；全量（**131 passed, 1 skipped**）
+- [x] **Step 4.4: 运行确认通过** → 定向 8 passed（首发 5 + 跟进 3）；全量（**131 passed, 1 skipped**）
 
 **评审跟进（2026-10-14 质量审查后并入）**：`reorder_and_log` 增加非"正常"状态守卫（对齐 mps-web server.js）；拖入普通组时同步 `prio_manual`；`_SNAPSHOT_FIELDS` 增补 `prio_score/pinned_by`；`create_batch` 顶部 `import uuid` + `_ser` 抽取；`undo_batch` docstring 修正。**并发决策留痕**：拖拽/置顶乐观锁（`expected_prio_updated_at` → 409）由后续 API 层实现，本服务层已维护 `prio_updated_at` 供比对。
-- [ ] **Step 4.5: 提交** `feat(mps): 优先级持久化服务（置顶/到期/拖拽/审计/批量撤销）`
+- [x] **Step 4.5: 提交** `feat(mps): 优先级持久化服务（置顶/到期/拖拽/审计/批量撤销）`
 
 ---
 
@@ -1122,7 +1138,7 @@ async def undo_batch(session: AsyncSession, batch_id: str, operator: str = "syst
 - Create: `backend/app/mps/strategy.py`
 - Create: `backend/tests/mps/test_mps_strategy.py`
 
-- [ ] **Step 5.1: 编写失败测试**
+- [x] **Step 5.1: 编写失败测试**
 
 ```python
 """策略层：5 策略注册表/排序器/指标/得分/配置 schema（移植 strategy.js）。"""
@@ -1226,9 +1242,9 @@ def test_config_schemas():
     assert vals2["objective"]["tardy"] == 2
 ```
 
-- [ ] **Step 5.2: 运行确认失败**
+- [x] **Step 5.2: 运行确认失败**
 
-- [ ] **Step 5.3: 创建 `backend/app/mps/strategy.py`**
+- [x] **Step 5.3: 创建 `backend/app/mps/strategy.py`**
 
 按 priority.js 同比例移植（`app/mps/strategy.py` 完整代码见下；`cmp_result` 来自 priority）：
 
@@ -1283,18 +1299,18 @@ def order_by_due(results, opts=None) -> list:
 
 其余常量与函数照 strategy.js 逐字移植：`STRATEGIES`（5 项，含 objective/allocPolicy/constraints/metrics/tag/desc）、`STRATEGY_IDS`、`get_strategy(id, p=None)`（strategy_<id>_<k> 覆盖合并）、`OBJECTIVE_SCHEMA`、`STRATEGY_CONFIG_SCHEMA`、`get_strategy_config_values(id, p)`、`strategy_metrics(planned, load)`、`strategy_score(strat, m)`（逐公式：onTime/lowSetup/balanced/shortMake 与加权）。
 
-- [ ] **Step 5.4: 运行确认通过** → 定向 8 passed（首发 5 + 跟进 3）；全量（**139 passed, 1 skipped**）
+- [x] **Step 5.4: 运行确认通过** → 定向 8 passed（首发 5 + 跟进 3）；全量（**139 passed, 1 skipped**）
 
 **评审跟进（2026-10-14 质量审查后并入）**：`order_by_due` 补留痕注释（due_buffer_days 对顺序无观察效果 + JS 同源死分支注释）；`get_strategy(id)` 无参数路径返回**副本**（防全局污染）；`strategy_metrics` makespan 锚点加固为"首个有 start_date 的非 error 行"（JS 用 planned[0]，error 首行时塌缩为 0）；测试 +3（接口契约/得分边界/makespan 锚点），并替换原空断言为"缓冲不改变顺序"不变量断言。
-- [ ] **Step 5.5: 提交** `feat(mps): 策略层移植（5策略/指标/得分/配置schema）`
+- [x] **Step 5.5: 提交** `feat(mps): 策略层移植（5策略/指标/得分/配置schema）`
 
 ---
 
 ### Task 6: 计划 3A 收尾（清单回写 PRIO + 执行记录）
 
-- [ ] **Step 6.1: 对照抽查**：priority.py ↔ priority.js（评分段/比较器段）、strategy.py ↔ strategy.js（注册表/指标段）各挑 2 段逐行核对，报告结论。
-- [ ] **Step 6.2: 全量回归 + check-list 回写**：CHK-PRIO-001~008 → 通过（真实测试路径）；PRIO-009 保持"待实现（计划4）"；PRIO-010 → "阻塞(疑点·按现全序语义实现)"。
-- [ ] **Step 6.3: 执行记录**：更新计划 3 执行记录（新建 `docs/superpowers/plans/2026-10-14-mps-rework-plan3-execution-log.md`，含 3A 摘要/决策/教训）+ 提交。
+- [x] **Step 6.1: 对照抽查**：priority.py ↔ priority.js（评分段/比较器段）、strategy.py ↔ strategy.js（注册表/指标段）各挑 2 段逐行核对，报告结论。
+- [x] **Step 6.2: 全量回归 + check-list 回写**：CHK-PRIO-001~008 → 通过（真实测试路径）；PRIO-009 保持"待实现（计划4）"；PRIO-010 → "阻塞(疑点·按现全序语义实现)"。
+- [x] **Step 6.3: 执行记录**：更新计划 3 执行记录（新建 `docs/superpowers/plans/2026-10-14-mps-rework-plan3-execution-log.md`，含 3A 摘要/决策/教训）+ 提交。
 
 ---
 
