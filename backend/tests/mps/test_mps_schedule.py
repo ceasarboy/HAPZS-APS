@@ -67,6 +67,9 @@ def _ctx_min():
                 {"mode": "半自动WB", "flux_base": 4500, "flux_peak": 4950, "split_threshold": 20, "unit": "根丝/天"},
                 {"mode": "自动WB", "flux_base": 12000, "flux_peak": 13200, "split_threshold": 20, "unit": "根丝/天"},
             ]},
+            "模块级|调试": {"modes": [
+                {"mode": "/", "flux_base": 10000, "flux_peak": 11000, "split_threshold": 1, "unit": "套/天"},
+            ]},
         },
         "params": {"week_days": 6, "peak_factor": 1.1, "use_peak": "mean", "exclude_braze_yield": 1,
                    "cf_db_1": 1, "cf_db_2": 0.9, "cf_db_3": 0.8, "cf_wb_1": 1, "cf_wb_2": 0.95, "cf_wb_3": 0.9,
