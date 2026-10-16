@@ -544,6 +544,17 @@ def _parse_due(due) -> "date | None":
         return None
 
 
+def _fmt_dt(v) -> str:
+    """datetime/date → 'YYYY-MM-DD'；其它值原样或空串（pinned_at 排序键依赖字符串比较）。"""
+    from datetime import date, datetime
+
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    return v or ""
+
+
 def calc_order(order: dict, ctx: dict) -> dict:
     """单条工单完整核算（移植 calcOrder + 参数化扩展）。
 

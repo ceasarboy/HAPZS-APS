@@ -262,3 +262,8 @@ def test_order_priority_passthrough():
     o3 = _order()
     o3["pinned_at"] = datetime(2026, 10, 1, 8, 0)
     assert calc_order(o3, _ctx_m02_2d())["order"]["pinned_at"] == "2026-10-01"
+    # 字符串布尔防御：pinned='0' → False（同步场景可能传字符串标记）；缺省 pinned_at=""
+    o4 = _order()
+    o4["pinned"] = "0"
+    assert calc_order(o4, _ctx_m02_2d())["order"]["pinned"] is False
+    assert calc_order(_order(), _ctx_m02_2d())["order"]["pinned_at"] == ""

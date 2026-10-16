@@ -8,7 +8,7 @@ import math
 from datetime import date
 from functools import cmp_to_key, partial
 
-from app.mps.dates import add_days, diff_days, js_round as _js_round, to_date, to_str  # noqa: F401（与 JS 同模块自持语义）
+from app.mps.dates import add_days, diff_days, js_round as _js_round, to_str
 
 DEFAULTS = {
     "prio_w_u": 0.30, "prio_w_b": 0.25, "prio_w_k": 0.15, "prio_w_r": 0.10, "prio_w_d": 0.10, "prio_w_w": 0.10,
@@ -211,7 +211,7 @@ def cmp_order(a, b) -> int:
 
 def result_key(r, week_days=6) -> dict:
     o = (r or {}).get("order") or {}
-    days = (r or {}).get("delivery", {}).get("days")
+    days = ((r or {}).get("delivery") or {}).get("days")
     return {
         "pinned": _num(o.get("pinned"), 0),
         "pinned_at": o.get("pinned_at") or "",

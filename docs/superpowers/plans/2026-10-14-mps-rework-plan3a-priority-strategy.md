@@ -536,6 +536,15 @@ def test_reorder_target_pinned_and_normal():
     assert n3["priority"] == 9999                       # min(9999, a+10)
     n4 = reorder_target({"priority": 100}, {"priority": 150, "pinned": 0}, {"priority": 150, "pinned": 0}, False)
     assert n4["priority"] == 151                        # 与邻居重合让位
+
+
+def test_result_key_delivery_none_and_bottleneck_override():
+    from app.mps.priority import result_key
+
+    k = result_key({"order": {"order_no": "A"}, "delivery": None, "input_qty": 10}, week_days=6)
+    assert k["delivery_days"] == 1e9                      # JS calc.delivery && … 语义
+    k2 = result_key({"order": {"order_no": "A"}, "delivery": {"days": 5}, "bottleneck_load_rate": 0.7})
+    assert k2["delivery_days"] == 5 and k2["bottleneck_rate"] == 0.7
 ```
 
 `test_kernel_calc.py` 追加（透传接口）：
@@ -559,6 +568,11 @@ def test_order_priority_passthrough():
     o3 = _order()
     o3["pinned_at"] = datetime(2026, 10, 1, 8, 0)
     assert calc_order(o3, _ctx_m02_2d())["order"]["pinned_at"] == "2026-10-01"
+    # 字符串布尔防御：pinned='0' → False（同步场景可能传字符串标记）；缺省 pinned_at=""
+    o4 = _order()
+    o4["pinned"] = "0"
+    assert calc_order(o4, _ctx_m02_2d())["order"]["pinned"] is False
+    assert calc_order(_order(), _ctx_m02_2d())["order"]["pinned_at"] == ""
 ```
 
 - [ ] **Step 3.2: 运行确认失败** → 缺函数/字段
@@ -606,7 +620,7 @@ def cmp_order(a, b) -> int:
 
 def result_key(r, week_days=6) -> dict:
     o = (r or {}).get("order") or {}
-    days = (r or {}).get("delivery", {}).get("days")
+    days = ((r or {}).get("delivery") or {}).get("days")
     return {
         "pinned": _num(o.get("pinned"), 0),
         "pinned_at": o.get("pinned_at") or "",
@@ -736,7 +750,7 @@ def _fmt_dt(v) -> str:
             "priority": order.get("priority"), "remark": order.get("remark"),
             "prio_level": order.get("prio_level") or "", "prio_score": order.get("prio_score"),
             "prio_source": order.get("prio_source") or "auto", "prio_manual": order.get("prio_manual"),
-            "pinned": bool(order.get("pinned")), "pinned_at": _fmt_dt(order.get("pinned_at")),
+            "pinned": bool(nz(order.get("pinned"), 0)), "pinned_at": _fmt_dt(order.get("pinned_at")),
             "sort_no": order.get("sort_no"), "status": order.get("status") or "正常",
         },
 ```
@@ -744,7 +758,7 @@ def _fmt_dt(v) -> str:
 
 - [ ] **Step 3.5: 运行确认通过**
 - 定向：`... -m pytest tests/mps/test_mps_priority.py tests/mps/test_kernel_calc.py -v`（预期 12 + 19 passed）
-- 全量：`... -m pytest tests -q`（预期 127 passed, 1 skipped）
+- 全量：`... -m pytest tests -q`（预期 123 passed, 1 skipped：基线 114 + 本任务 9 用例，含质量跟进 +1）
 - [ ] **Step 3.6: 提交** `feat(mps): 优先级纯核心②（8级全序/重算/拖拽）+ kernel 优先级透传接口`
 
 ---

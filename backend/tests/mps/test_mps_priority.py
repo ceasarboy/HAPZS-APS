@@ -161,6 +161,15 @@ def test_recompute_rows_manual_and_pinned():
     assert forced[0]["applied"] is True and forced[0]["priority"] != 500
 
 
+def test_result_key_delivery_none_and_bottleneck_override():
+    from app.mps.priority import result_key
+
+    k = result_key({"order": {"order_no": "A"}, "delivery": None, "input_qty": 10}, week_days=6)
+    assert k["delivery_days"] == 1e9                      # JS calc.delivery && … 语义
+    k2 = result_key({"order": {"order_no": "A"}, "delivery": {"days": 5}, "bottleneck_load_rate": 0.7})
+    assert k2["delivery_days"] == 5 and k2["bottleneck_rate"] == 0.7
+
+
 def test_reorder_target_pinned_and_normal():
     from app.mps.priority import PINNED_PRIORITY, reorder_target
 

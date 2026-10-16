@@ -289,7 +289,7 @@ def calc_order(order: dict, ctx: dict) -> dict:
             "priority": order.get("priority"), "remark": order.get("remark"),
             "prio_level": order.get("prio_level") or "", "prio_score": order.get("prio_score"),
             "prio_source": order.get("prio_source") or "auto", "prio_manual": order.get("prio_manual"),
-            "pinned": bool(order.get("pinned")), "pinned_at": _fmt_dt(order.get("pinned_at")),
+            "pinned": bool(nz(order.get("pinned"), 0)), "pinned_at": _fmt_dt(order.get("pinned_at")),
             "sort_no": order.get("sort_no"), "status": order.get("status") or "正常",
         },
         "process": {"code": proc.get("code"), "name": proc.get("name"), "arch": proc.get("arch")},
