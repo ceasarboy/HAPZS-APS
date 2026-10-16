@@ -3,6 +3,7 @@ import os
 import httpx
 import json
 import time
+from pathlib import Path
 
 APP_ID = os.environ.get("HAP_APP_ID", "")
 HEADERS = {
@@ -11,7 +12,8 @@ HEADERS = {
     "HAP-Sign": os.environ.get("HAP_SIGN", ""),
 }
 BASE_URL = "https://api.mingdao.com"
-IDS_FILE = "e:/openaps/aps-hap/deploy/worksheet_ids.json"
+# 相对于本文件定位仓库根目录下的 deploy/worksheet_ids.json（不再硬编码盘符）
+IDS_FILE = Path(__file__).resolve().parents[1] / "deploy" / "worksheet_ids.json"
 
 # 加载已有工作表 ID
 with open(IDS_FILE, "r", encoding="utf-8") as f:

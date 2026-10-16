@@ -1,14 +1,16 @@
-r"""从 D:\MPS 提取 docx/xlsx 文本，供编制 check-list 使用（只读 MPS 目录）。
+r"""从 MPS 只读资料目录提取 docx/xlsx 文本，供编制 check-list 使用（只读，不修改源目录）。
 
+源目录默认 F:\MPS，可用环境变量 MPS_DIR 覆盖。
 用法：在 backend 目录执行  python tools/extract_mps_docs.py
 输出：backend/.tmp/mps-extract/<原名>.md
 """
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-MPS_DIR = Path(r"D:\MPS")
+MPS_DIR = Path(os.environ.get("MPS_DIR", r"F:\MPS"))
 OUT_DIR = Path(__file__).resolve().parents[1] / ".tmp" / "mps-extract"
 
 

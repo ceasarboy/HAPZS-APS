@@ -1,15 +1,18 @@
-"""把 mps-web 种子转换为本系统种子文件（只读 D:\\MPS，一次运行，产物入库）。
+"""把 mps-web 种子转换为本系统种子文件（只读 MPS 资料目录，一次运行，产物入库）。
 
+源目录默认 F:\\MPS（MPS_WEB = <MPS_DIR>/mps-web），可用环境变量 MPS_DIR 覆盖。
 用法：在 backend 目录执行  python tools/convert_mps_seed.py
 产物：app/seed/mps_seed.json、app/seed/demo_orders.json
 """
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-MPS_WEB = Path(r"D:\MPS\mps-web")
+MPS_DIR = Path(os.environ.get("MPS_DIR", r"F:\MPS"))
+MPS_WEB = MPS_DIR / "mps-web"
 OUT = Path(__file__).resolve().parents[1] / "app" / "seed"
 
 

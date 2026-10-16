@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13.5（内嵌 `offline\runtime\python\python.exe`）、pytest（asyncio_mode=auto）；新增依赖 `deap==1.4.4`（已装入内嵌运行时实测可用）；沿用 tests/mps 夹具风格与 SQLite 临时库夹具（`sqlite_session`）。
 
-**唯一移植参照（只读）：** `D:\MPS\mps-web\src\aps.js`（207 行）。GA/solver/service 为本系统新实现（设计 D11/D12 与 3B1 契约），无 JS 对照。
+**唯一移植参照（只读）：** `F:\MPS\mps-web\src\aps.js`（207 行）。GA/solver/service 为本系统新实现（设计 D11/D12 与 3B1 契约），无 JS 对照。
 
 **check-list 覆盖（3B2 负责）：** CHK-SCHED-008/009/010 的实现与测试；CHK-SCHED-001~007 为 3B1 已实现，本计划 Task 5 统一回写状态与实测测试路径（接收自 3B1 移交项）。
 
@@ -234,7 +234,7 @@ def test_aps_run_optimize_mode():
 - [x] **Step 1.2: 运行确认失败**
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_aps.py -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_aps.py -q
 ```
 预期：collection error `ModuleNotFoundError: No module named 'app.mps.aps'`。
 
@@ -506,8 +506,8 @@ def aps_run(results, ctx, opts=None) -> dict:
 - [x] **Step 1.4: 运行确认通过**（预期：本文件 8 passed；全量 174 passed, 1 skipped）
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_aps.py -q
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_aps.py -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -q
 ```
 
 - [x] **Step 1.5: 提交** `feat(mps): APS 门面移植（aps.js：门控/GT 启发式/局部搜索/编排）`
@@ -638,7 +638,7 @@ def test_param_defs_key_snapshot():
 - [ ] **Step 2.2: 运行确认失败**
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_ga.py tests/mps/test_consts.py -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_ga.py tests/mps/test_consts.py -q
 ```
 预期：ga 文件 collection error（无 `app.mps.ga`）；test_consts 两个快照/默认值断言失败（16≠19、缺 ga_*）。
 
@@ -914,7 +914,7 @@ def test_order_opts_defaults():
 - [ ] **Step 3.2: 运行确认失败**
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_solver.py tests/mps/test_mps_strategy.py tests/mps/test_mps_schedule.py -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_solver.py tests/mps/test_mps_strategy.py tests/mps/test_mps_schedule.py -q
 ```
 预期：solver 文件 collection error（无 `app.mps.solver`）；strategy 新测试失败（`week_days=3` 断言不成立）；schedule `test_order_opts_defaults` 失败（无 `week_days` 键）。
 
@@ -1257,7 +1257,7 @@ async def test_sync_rehang_manual_dependency(sqlite_session):
 - [ ] **Step 4.2: 运行确认失败**
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_schedule_service.py tests/mps/test_mps_operations.py -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests/mps/test_mps_schedule_service.py tests/mps/test_mps_operations.py -q
 ```
 预期：service 文件 collection error（无 `app.mps.schedule_service`）；operations 新测试失败（`manual2.depends_on_id == rows2[1].id` 不成立——仍指向旧行）。
 
@@ -1469,7 +1469,7 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
 - [ ] **Step 5.2: 全量回归**（预期 189 passed, 1 skipped）：
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"; & "D:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -q
+$env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" -m pytest tests -q
 ```
 
 - [ ] **Step 5.3: 执行记录**：`docs/superpowers/plans/2026-10-14-mps-rework-plan3-execution-log.md` 追加 3B2 节（摘要：4 模块 23 测试；决策：GA 索引排列/确定性默认关 setup/CP-SAT 延后/D12 手工条服务管道接入（run_schedule 读 manual 行 → merge_manual_bars）；教训：date 归一 bug、cxOrdered 整数基因、HallOfFame deepcopy、手工条 operation_id 按 append 顺序关联（免对象身份依赖）、PowerShell 中文乱码用 utf-8 环境变量与文件落盘读回；移交修复：operations 依赖重挂、week_days 透传）并提交。

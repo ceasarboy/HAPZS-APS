@@ -1,6 +1,7 @@
 """单独创建生产日历工作表"""
 import os
 import httpx, json, time
+from pathlib import Path
 
 APP_ID = os.environ.get("HAP_APP_ID", "")
 HEADERS = {
@@ -47,8 +48,8 @@ if result.get("success"):
     }, timeout=30)
     print(f"  添加关联字段: success={r2.json().get('success')}")
 
-    # 更新 worksheet_ids.json
-    ids_file = "e:/openaps/aps-hap/deploy/worksheet_ids.json"
+    # 更新 worksheet_ids.json（相对于本文件定位仓库根目录下的 deploy/）
+    ids_file = Path(__file__).resolve().parents[1] / "deploy" / "worksheet_ids.json"
     with open(ids_file, "r", encoding="utf-8") as f:
         ids = json.load(f)
     ids["production_calendar"] = ws_id
