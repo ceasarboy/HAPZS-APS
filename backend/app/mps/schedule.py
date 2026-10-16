@@ -29,12 +29,13 @@ from app.mps.kernel import ceil_int, nz
 
 
 def order_opts(opts=None) -> dict:
-    """构造传给 orderFn 的排序选项（注入可调参数：换线天数/交期缓冲）。"""
+    """构造传给 orderFn 的排序选项（注入可调参数：换线天数/交期缓冲/周工作天数）。"""
     o = dict(opts or {})
     p = o.get("P") or {}
     if o.get("setupDiff") is None:
         o["setupDiff"] = nz(p.get("setup_days"), 0.5)
     o["due_buffer_days"] = nz(p.get("due_buffer_days"), 0)
+    o["week_days"] = nz(p.get("week_days"), 6)
     return o
 
 

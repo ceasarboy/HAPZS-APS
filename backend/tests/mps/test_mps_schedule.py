@@ -6,10 +6,10 @@ from app.mps.schedule import alloc_earliest, op_work, order_opts, resource_key
 
 
 def test_order_opts_defaults():
-    o = order_opts({"P": {"setup_days": 1.5, "due_buffer_days": 3}})
-    assert o["setupDiff"] == 1.5 and o["due_buffer_days"] == 3
+    o = order_opts({"P": {"setup_days": 1.5, "due_buffer_days": 3, "week_days": 5}})
+    assert o["setupDiff"] == 1.5 and o["due_buffer_days"] == 3 and o["week_days"] == 5
     o2 = order_opts()
-    assert o2["setupDiff"] == 0.5 and o2["due_buffer_days"] == 0
+    assert o2["setupDiff"] == 0.5 and o2["due_buffer_days"] == 0 and o2["week_days"] == 6
 
 
 def test_alloc_earliest_basic_and_daily_spread():

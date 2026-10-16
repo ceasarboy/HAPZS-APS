@@ -211,7 +211,8 @@ def aps_run(results, ctx, opts=None) -> dict:
     p = ctx["params"]
     base = opts.get("base_date") or to_str(date.today())
     o = {"base_date": base, "setup": opts.get("setup") is not False,
-         "setupDiff": nz(opts.get("setupDiff"), 0.5), "setupSame": nz(opts.get("setupSame"), 0)}
+         "setupDiff": nz(opts.get("setupDiff"), 0.5), "setupSame": nz(opts.get("setupSame"), 0),
+         "week_days": nz(p.get("week_days"), 6)}
     strat = strategy_mod.get_strategy(opts["strategy"], p) if opts.get("strategy") else None
     weights = strat["objective"] if strat else opts.get("weights")
     gate = aps_gate(results, ctx, opts)

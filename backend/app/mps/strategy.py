@@ -41,8 +41,11 @@ def bottleneck_load_of(r):
 
 # ---------------------------------------------------------------- 排序规则
 def order_by_priority(results, opts=None) -> list:
-    """订单优先级优先（默认，等价于现状）：全序 comparator（置顶→优先级→交期→…）。"""
-    return prio.sort_results(results)
+    """订单优先级优先（默认）：全序 comparator（置顶→优先级→交期→…）。
+
+    week_days 透传（3B2 修复）：影响第 7 级瓶颈负荷率档位；缺省回 6（3A 口径）。
+    """
+    return prio.sort_results(results, week_days=prio._num((opts or {}).get("week_days"), 6))
 
 
 def order_by_due(results, opts=None) -> list:

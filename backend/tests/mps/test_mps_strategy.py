@@ -97,3 +97,21 @@ def test_config_schemas():
     assert vals["fields"]["setup_days"] == 1.5
     vals2 = get_strategy_config_values("setup", {"strategy_setup_tardy": 2})
     assert vals2["objective"]["tardy"] == 2
+
+
+def test_order_by_priority_week_days_tiebreak():
+    """week_days 透传：瓶颈负荷率档位相同时按编号兜底（3B2 修复，探针实证）。"""
+    from app.mps.strategy import order_by_priority
+
+    a = _r("A", due="2026-07-01")            # 同优先级/同交期/同交期天数，仅瓶颈负荷不同
+    a["input_qty"] = 500
+    a["bottleneck"] = {"throughput": 100}
+    b = _r("B", due="2026-07-01")
+    b["input_qty"] = 1000
+    b["bottleneck"] = {"throughput": 100}
+    # week_days=6：B(⌈1000/100⌉/6=1.0) 先于 A(5/6≈0.833)
+    assert [x["order"]["order_no"] for x in order_by_priority([a, b], {"week_days": 6})] == ["B", "A"]
+    # week_days=3：两者均 clamp 至 1.0 → 退到编号兜底 A 先
+    assert [x["order"]["order_no"] for x in order_by_priority([a, b], {"week_days": 3})] == ["A", "B"]
+    # 缺省等价 6（与 3A 口径一致）
+    assert [x["order"]["order_no"] for x in order_by_priority([a, b])] == ["B", "A"]
