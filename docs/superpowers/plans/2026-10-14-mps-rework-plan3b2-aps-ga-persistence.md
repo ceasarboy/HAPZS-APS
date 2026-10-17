@@ -681,6 +681,7 @@ DEAP `tools.cxOrdered` 要求整数基因，不能直接用结果 dict 作基因
 - 种群首部注入种子序列（策略序/GT 序，按 order_no 映射为索引）；无种子时真值基准取输入序；
 - 随机流隔离：`random.seed(seed)` 前保存 `random.getstate()`、结束 `setstate` 恢复；
 - 参数优先级：opts > `ctx["params"]`（ga_population/ga_generations/ga_seed）> 常量默认（30/20/42）；
+- 目标权重缺省取 `aps.DEFAULT_WEIGHTS`（solver 恒显式传入；独立调用兜底）；
 - creator 全局单例守卫（重复导入/多测试复用不报错）；`tools.HallOfFame(1)` 内部 deepcopy 保管最优。
 """
 import copy
@@ -688,7 +689,7 @@ import random
 
 from deap import algorithms, base, creator, tools
 
-from app.mps.aps import aps_metrics, objective
+from app.mps.aps import DEFAULT_WEIGHTS, aps_metrics, objective
 from app.mps.kernel import nz
 from app.mps.schedule import schedule_process_constrained
 
@@ -709,7 +710,7 @@ def run_ga(passed, ctx, opts=None) -> dict:
     generations = max(0, int(nz(opts.get("generations"), nz(p.get("ga_generations"), 20))))
     seed_raw = int(nz(opts.get("seed"), nz(p.get("ga_seed"), 42)))
     seed = seed_raw if seed_raw > 0 else None
-    weights = dict(opts["weights"])
+    weights = dict(opts.get("weights") or DEFAULT_WEIGHTS)
     decode_opts = {"strategy": opts.get("strategy"), "P": p,
                    "setup": opts.get("setup") is not False,
                    "setupDiff": nz(opts.get("setupDiff"), 0.5)}
@@ -1310,13 +1311,14 @@ async def sync_order_operations(session: AsyncSession, order_id: str, calc_resul
 """排产服务：载单 → 手工条并入 → 求解 → 批次/每日分配落库 → 订单回写（CHK-SCHED-010；唯一碰 DB 的排产模块）。
 
 - 单事务提交：ScheduleBatch + ScheduleAllocation×N + orders 回写一并 commit；
-- batch_no 规则 `SCH-{YYYYMMDD}-{序号:03d}`（序号=同前缀最大+1，天然单调）；
+- batch_no 规则 `SCH-{YYYYMMDD}-{序号:03d}`（序号=同前缀数字最大+1）；
 - D12：该单 manual 工序行（depends_on_id → 前道 seq）经 merge_manual_bars 并入甘特参与排产；
   分配行按 manual 行顺序（seq 升序）与手工条一一关联 operation_id；
 - 分配行：每条 step 条（不含 setup 条）按日拆分：busy_days 逐日一条，
   qty=amt/busy_days（amt=op_work 工作量）；自动条 operation_id 按 (order_id, seq) 关联工序需求；
   同资源逐日按 bars 顺序 append（执行层 FIFO）。
-- 本函数不同步工序需求（调用方按需先行 sync_order_operations；手工行/自动行均从库读）。
+- 本函数兜底工序需求：订单零工序行且计算无错时自动 sync_order_operations 补建
+  （调用方仍可先行同步；手工行/自动行均从库读；3B2 质量跟进）。
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1325,7 +1327,7 @@ from app.models.mps import Order, OrderOperation, ScheduleAllocation, ScheduleBa
 from app.mps.context import load_ctx
 from app.mps.dates import add_days, to_date
 from app.mps.kernel import calc_order, nz
-from app.mps.operations import merge_manual_bars
+from app.mps.operations import merge_manual_bars, sync_order_operations
 from app.mps.schedule import op_work
 from app.mps.solver import solve
 
@@ -1352,6 +1354,12 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
     if not orders:
         raise ValueError("无待排工单（orders.status='正常' 为空）")
     results = [calc_order(order_to_dict(o), ctx) for o in orders]
+    have_ops = set((await session.execute(      # 兜底：未预同步工序需求的订单自动补建（3B2 质量跟进）
+        select(OrderOperation.order_id).where(OrderOperation.order_id.in_([o.id for o in orders]))
+        .distinct())).scalars().all())
+    for o, r in zip(orders, results):
+        if o.id not in have_ops and not r.get("error"):
+            await sync_order_operations(session, o.id, r)
 
     op_rows = (await session.execute(
         select(OrderOperation).where(OrderOperation.order_id.in_([o.id for o in orders]))
@@ -1374,10 +1382,10 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
     planned = out["schedule"]
 
     prefix = f"SCH-{to_date(base_date).strftime('%Y%m%d')}-"
-    last = (await session.execute(
-        select(ScheduleBatch.batch_no).where(ScheduleBatch.batch_no.like(prefix + "%"))
-        .order_by(ScheduleBatch.batch_no.desc()).limit(1))).scalar()
-    seq_no = int(last.rsplit("-", 1)[1]) + 1 if last else 1
+    existing = (await session.execute(          # 序号=同前缀数字最大+1（词法序 ≥1000 失真；3B2 质量跟进）
+        select(ScheduleBatch.batch_no).where(ScheduleBatch.batch_no.like(prefix + "%")))).scalars().all()
+    seq_no = max((int(x.rsplit("-", 1)[1]) for x in existing
+                  if x.rsplit("-", 1)[1].isdigit()), default=0) + 1
     batch_no = f"{prefix}{seq_no:03d}"
     batch = ScheduleBatch(
         batch_no=batch_no, base_date=to_date(base_date), solver_mode=out["solver"]["mode"],
@@ -1497,3 +1505,170 @@ $env:PYTHONIOENCODING="utf-8"; & "F:\aps-hap\offline\runtime\python\python.exe" 
 - 占位符扫描：无 TBD；所有测试断言值为探针实测（date 归一 bug 即由探针捕获并已修正入 Task 1 代码）。
 - 类型一致性：`planned[].gantt.bars[].{from,to,busy_days,setup_days,res,seq}`、`plan{}`、`decode{ledger,fluxOf,capViolations}`、`solver{}`、`batch_no` 规则在测试与代码中一致；`run_schedule` 与 `solver.solve` 键名一致（solver_mode/strategy_id/kpi/solver/warnings）。
 - 计数一致性：166 → +8（174）→ +5（179）→ +6（185）→ +4（189）；test_consts/test_mps_schedule 为修改既有测试不增计数。
+
+---
+
+## 3B2 质量跟进（2026-10-17，独立质量审查留待项处理）
+
+> 背景：3B2 收尾后独立质量审查列出的"重要"留待项，本次逐条处理；代码与计划镜像同步订正（订正处见上文代码块内联注释"3B2 质量跟进"）。
+
+1. `schedule_service.batch_no` 序号由词法序改为**同前缀数字最大+1**（`-1000` 与 `-999` 词法序失真，原实现在单日 >999 批次后回退；含镜像订正）；
+2. `run_schedule` 工序需求契约由"不同步（调用方先行）"改为**零工序行兜底自动补建**（`sync_order_operations`，计算无错订单；分配行不再出现 operation_id 全空；含镜像订正）；
+3. `ga.py` 目标权重缺省兜底 `aps.DEFAULT_WEIGHTS`（独立调用不再 KeyError）；
+4. `CHK-SCHED-010` 描述列 `schedule_result` → `schedule_allocation` + `orders` 回写（checklist 订正）；
+5. 新增 `improve_fixture`（`test_mps_aps.py`；探针实证：策略序=GT 序 15.0475 → 交换后最优 4.1475）覆盖 `improved=True` 分支——原 5 单夹具该分支**原理性不可达**（探针枚举全部 120 排列证实 GT 序即全局最优；GA 解码器口径同证）。
+
+新增测试（7 个，189 → 196）：
+- `test_mps_schedule_service.py`：`test_batch_no_sequence_is_numeric_not_lexical`（…-999/-1000 → 下一批次 -1001）、`test_run_schedule_autosyncs_missing_operations`、`test_run_schedule_multiple_manual_operations`（同单两条手工条各自关联 operation_id）；
+- `test_mps_operations.py`：`test_sync_manual_chain_dependency_cleared`（手工→手工依赖重同步后目标 seq 不存在 → 置 None）；
+- `test_mps_ga.py`：`test_run_ga_weights_default_and_seed_truncation`（权重兜底 + 种子数>种群截断，含最差序种子 `[2,3,1,4,0]` 探针实证）、`test_run_ga_improved_true_when_first_seed_inferior`；
+- `test_mps_solver.py`：`test_solve_improved_branch_heuristic_and_ga`（heuristic "(已改进)" 后缀 + GA improved=True）。
+
+### 新增测试与夹具（逐字镜像，2026-10-17）
+
+`tests/mps/test_mps_aps.py` 追加：
+
+```python
+def improve_fixture():
+    """改进夹具：GT 序（族内批产先）在本例非最优——研发单小批早交期（qty20/06-03）、
+    批产单大批晚交期（qty1000/08-01），意向优先级亦反转（研发 200 > 批产 50）使策略序=GT 序；
+    最优排列为研发先（策略序 15.0475 → 交换后 4.1475，探针实证）。供 heuristic/GA 覆盖
+    improved=True 分支（3B2 质量跟进）。"""
+    ctx = _ctx_two_fam()
+    specs = [
+        {"order_no": "WO-R", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "首单",
+         "water_vapor": "有", "qty": 20, "priority": 200, "due_date": "2026-06-03",
+         "kit_date": "2026-06-01", "features": {"N_die": 60, "N_wire": 60}},
+        {"order_no": "WO-B", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
+         "water_vapor": "有", "qty": 1000, "priority": 50, "due_date": "2026-08-01",
+         "kit_date": "2026-06-01", "features": {"N_die": 60, "N_wire": 60}},
+    ]
+    return [calc_order(s, ctx) for s in specs], ctx
+```
+
+`tests/mps/test_mps_ga.py` 追加：
+
+```python
+def test_run_ga_weights_default_and_seed_truncation():
+    """权重缺省兜底 DEFAULT_WEIGHTS；种子数>种群 → 截断丢弃（3B2 质量跟进）。"""
+    passed, ctx = _passed_and_ctx()
+    strat_seq = strategy_mod.order_by_priority(list(passed))
+    out = run_ga(passed, ctx, {"base_date": BASE, "strategy": "priority", "setup": True,
+                               "population": 2, "generations": 0, "seed": 42,
+                               "seeds": [strat_seq, strat_seq]})
+    assert out["objective"] == pytest.approx(6.003333205390996)   # 无 weights → DEFAULT_WEIGHTS 兜底
+    bad = [passed[i] for i in (2, 3, 1, 4, 0)]                    # WO-5,WO-4,WO-2,WO-1,WO-3（探针实证最差序）
+    gt_seq = aps_sequence_heuristic(passed)
+    out2 = run_ga(passed, ctx, _opts(population=2, generations=0, seed=42,
+                                     seeds=[bad, bad, gt_seq]))
+    assert out2["objective"] == pytest.approx(8.103333205390996)  # 第 3 个更优种子被截断丢弃 → 最优=最差序
+    assert out2["improved"] is False
+
+
+def test_run_ga_improved_true_when_first_seed_inferior():
+    """改进分支：baseline=首个种子（最差序 8.1033…），种子含更优 GT 序 → improved=True（3B2 质量跟进）。"""
+    passed, ctx = _passed_and_ctx()
+    bad = [passed[i] for i in (2, 3, 1, 4, 0)]
+    gt_seq = aps_sequence_heuristic(passed)
+    out = run_ga(passed, ctx, _opts(population=2, generations=0, seed=42, seeds=[bad, gt_seq]))
+    assert out["baseline_objective"] == pytest.approx(8.103333205390996)
+    assert out["objective"] == pytest.approx(6.003333205390996)
+    assert out["improved"] is True
+```
+
+`tests/mps/test_mps_solver.py` 追加：
+
+```python
+def test_solve_improved_branch_heuristic_and_ga():
+    """improved=True 分支：GT 序非最优夹具（策略序=GT 序 15.0475 → 最优 4.1475）下
+    heuristic 出 (已改进) 后缀、GA 找到更优排列（3B2 质量跟进）。"""
+    results, ctx = improve_fixture()
+    out = solve(results, ctx, {"base_date": BASE, "mode": "heuristic", "iterations": 200, "seed": 42})
+    assert out["method"] == "heuristic+local-search(已改进)"
+    assert out["sequence"] == ["WO-R", "WO-B"]
+    assert out["solver"]["improved"] is True
+    assert out["solver"]["baseline_objective"] == pytest.approx(15.0475)
+    assert out["solver"]["objective"] == pytest.approx(4.1475)
+    results2, ctx2 = improve_fixture()
+    out2 = solve(results2, ctx2, {"base_date": BASE, "mode": "ga", "population": 8, "generations": 3})
+    assert out2["sequence"] == ["WO-R", "WO-B"]
+    assert out2["solver"]["improved"] is True
+    assert out2["solver"]["baseline_objective"] == pytest.approx(15.0475)
+    assert out2["solver"]["objective"] == pytest.approx(4.1475)
+```
+
+`tests/mps/test_mps_schedule_service.py` 追加：
+
+```python
+async def test_batch_no_sequence_is_numeric_not_lexical(sqlite_session):
+    """batch_no 序号=同前缀数字最大+1（词法序误判 -1000<-999；3B2 质量跟进）。"""
+    await _seed_orders(sqlite_session)
+    sqlite_session.add_all([
+        ScheduleBatch(batch_no="SCH-20260601-999", base_date=date(2026, 6, 1), solver_mode="deterministic"),
+        ScheduleBatch(batch_no="SCH-20260601-1000", base_date=date(2026, 6, 1), solver_mode="deterministic"),
+    ])
+    await sqlite_session.commit()
+    r = await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
+    assert r["batch_no"] == "SCH-20260601-1001"
+
+
+async def test_run_schedule_autosyncs_missing_operations(sqlite_session):
+    """未预同步工序需求的订单：服务自动补建（分配行 operation_id 非空；3B2 质量跟进）。"""
+    await load_mps_seed(sqlite_session)                    # 有意不调用 sync_order_operations
+    a = _mk_order("WO-NS", 1000, 100)
+    sqlite_session.add(a)
+    await sqlite_session.commit()
+    r = await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
+    rows = (await sqlite_session.execute(
+        select(ScheduleAllocation).where(ScheduleAllocation.order_id == a.id))).scalars().all()
+    assert rows and all(x.operation_id is not None for x in rows)
+    assert r["allocation_rows"] == len(rows)
+
+
+async def test_run_schedule_multiple_manual_operations(sqlite_session):
+    """同单多条手工工序：分配行各自关联到自己的 operation_id（3B2 质量跟进）。"""
+    a, b = await _seed_orders(sqlite_session)
+    m1 = await add_manual_operation(sqlite_session, a.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=5, note="返工1")
+    m2 = await add_manual_operation(sqlite_session, a.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=5, note="返工2")
+    await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
+    a_rows = (await sqlite_session.execute(
+        select(ScheduleAllocation).where(ScheduleAllocation.order_id == a.id))).scalars().all()
+    n1 = [x for x in a_rows if x.operation_id == m1.id]
+    n2 = [x for x in a_rows if x.operation_id == m2.id]
+    assert len(n1) == 5 and len(n2) == 5
+    assert all(x.resource_key == "模块级|调试|/" for x in n1 + n2)
+    sums = {}
+    for x in n1 + n2:
+        sums[x.operation_id] = sums.get(x.operation_id, 0.0) + x.qty
+    assert sums[m1.id] == pytest.approx(1052) and sums[m2.id] == pytest.approx(1052)
+```
+
+`tests/mps/test_mps_operations.py` 追加：
+
+```python
+async def test_sync_manual_chain_dependency_cleared(sqlite_session):
+    """手工→手工依赖：重同步后目标 seq 在新自动行中不存在 → 置 None（3B2 质量跟进，留痕行为）。"""
+    r, _ = _calc_pair()
+    o = Order(order_no="O-4", product="P", code="M02-2D", qty=100, features={"N_die": 60, "N_wire": 60})
+    sqlite_session.add(o)
+    await sqlite_session.commit()
+    await sync_order_operations(sqlite_session, o.id, r)
+    m1 = await add_manual_operation(sqlite_session, o.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=2, note="返工1")
+    m2 = await add_manual_operation(sqlite_session, o.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=None, note="返工2")
+    m2.depends_on_id = m1.id          # 手工→手工依赖（正常调用不会产生，直接构造）
+    await sqlite_session.commit()
+    await sync_order_operations(sqlite_session, o.id, r)
+    rows = (await sqlite_session.execute(
+        select(OrderOperation).order_by(OrderOperation.seq))).scalars().all()
+    by_id = {x.id: x for x in rows}
+    assert by_id[m1.id].depends_on_id == rows[1].id        # 原指向前道自动 seq=2 → 重挂新行
+    assert by_id[m2.id].depends_on_id is None              # 手工→手工依赖被清空（已留痕）
+```
+
+验证：全量回归 `196 passed, 1 skipped`。
+
+留待（次要项，计划 4/5 处理）：heuristic 模式 `seed<=0` 时 `aps_optimize` 走模块级 `random`（调用方无法隔离全局随机流）；少量字面量/文案重复为风格项。

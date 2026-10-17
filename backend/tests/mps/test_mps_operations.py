@@ -121,3 +121,24 @@ async def test_sync_rehang_manual_dependency(sqlite_session):
     assert manual2.source == "manual" and manual2.seq == 3
     assert manual2.depends_on_id == rows2[1].id            # 重挂到新 seq=2 自动行
     assert manual2.depends_on_id != old_seq2_id
+
+
+async def test_sync_manual_chain_dependency_cleared(sqlite_session):
+    """手工→手工依赖：重同步后目标 seq 在新自动行中不存在 → 置 None（3B2 质量跟进，留痕行为）。"""
+    r, _ = _calc_pair()
+    o = Order(order_no="O-4", product="P", code="M02-2D", qty=100, features={"N_die": 60, "N_wire": 60})
+    sqlite_session.add(o)
+    await sqlite_session.commit()
+    await sync_order_operations(sqlite_session, o.id, r)
+    m1 = await add_manual_operation(sqlite_session, o.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=2, note="返工1")
+    m2 = await add_manual_operation(sqlite_session, o.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=None, note="返工2")
+    m2.depends_on_id = m1.id          # 手工→手工依赖（正常调用不会产生，直接构造）
+    await sqlite_session.commit()
+    await sync_order_operations(sqlite_session, o.id, r)
+    rows = (await sqlite_session.execute(
+        select(OrderOperation).order_by(OrderOperation.seq))).scalars().all()
+    by_id = {x.id: x for x in rows}
+    assert by_id[m1.id].depends_on_id == rows[1].id        # 原指向前道自动 seq=2 → 重挂新行
+    assert by_id[m2.id].depends_on_id is None              # 手工→手工依赖被清空（已留痕）

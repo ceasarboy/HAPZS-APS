@@ -1,13 +1,14 @@
 """排产服务：载单 → 手工条并入 → 求解 → 批次/每日分配落库 → 订单回写（CHK-SCHED-010；唯一碰 DB 的排产模块）。
 
 - 单事务提交：ScheduleBatch + ScheduleAllocation×N + orders 回写一并 commit；
-- batch_no 规则 `SCH-{YYYYMMDD}-{序号:03d}`（序号=同前缀最大+1，天然单调）；
+- batch_no 规则 `SCH-{YYYYMMDD}-{序号:03d}`（序号=同前缀数字最大+1）；
 - D12：该单 manual 工序行（depends_on_id → 前道 seq）经 merge_manual_bars 并入甘特参与排产；
   分配行按 manual 行顺序（seq 升序）与手工条一一关联 operation_id；
 - 分配行：每条 step 条（不含 setup 条）按日拆分：busy_days 逐日一条，
   qty=amt/busy_days（amt=op_work 工作量）；自动条 operation_id 按 (order_id, seq) 关联工序需求；
   同资源逐日按 bars 顺序 append（执行层 FIFO）。
-- 本函数不同步工序需求（调用方按需先行 sync_order_operations；手工行/自动行均从库读）。
+- 本函数兜底工序需求：订单零工序行且计算无错时自动 sync_order_operations 补建
+  （调用方仍可先行同步；手工行/自动行均从库读；3B2 质量跟进）。
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ from app.models.mps import Order, OrderOperation, ScheduleAllocation, ScheduleBa
 from app.mps.context import load_ctx
 from app.mps.dates import add_days, to_date
 from app.mps.kernel import calc_order, nz
-from app.mps.operations import merge_manual_bars
+from app.mps.operations import merge_manual_bars, sync_order_operations
 from app.mps.schedule import op_work
 from app.mps.solver import solve
 
@@ -43,6 +44,12 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
     if not orders:
         raise ValueError("无待排工单（orders.status='正常' 为空）")
     results = [calc_order(order_to_dict(o), ctx) for o in orders]
+    have_ops = set((await session.execute(      # 兜底：未预同步工序需求的订单自动补建（3B2 质量跟进）
+        select(OrderOperation.order_id).where(OrderOperation.order_id.in_([o.id for o in orders]))
+        .distinct())).scalars().all())
+    for o, r in zip(orders, results):
+        if o.id not in have_ops and not r.get("error"):
+            await sync_order_operations(session, o.id, r)
 
     op_rows = (await session.execute(
         select(OrderOperation).where(OrderOperation.order_id.in_([o.id for o in orders]))
@@ -65,10 +72,10 @@ async def run_schedule(session: AsyncSession, base_date, opts=None) -> dict:
     planned = out["schedule"]
 
     prefix = f"SCH-{to_date(base_date).strftime('%Y%m%d')}-"
-    last = (await session.execute(
-        select(ScheduleBatch.batch_no).where(ScheduleBatch.batch_no.like(prefix + "%"))
-        .order_by(ScheduleBatch.batch_no.desc()).limit(1))).scalar()
-    seq_no = int(last.rsplit("-", 1)[1]) + 1 if last else 1
+    existing = (await session.execute(          # 序号=同前缀数字最大+1（词法序 ≥1000 失真；3B2 质量跟进）
+        select(ScheduleBatch.batch_no).where(ScheduleBatch.batch_no.like(prefix + "%")))).scalars().all()
+    seq_no = max((int(x.rsplit("-", 1)[1]) for x in existing
+                  if x.rsplit("-", 1)[1].isdigit()), default=0) + 1
     batch_no = f"{prefix}{seq_no:03d}"
     batch = ScheduleBatch(
         batch_no=batch_no, base_date=to_date(base_date), solver_mode=out["solver"]["mode"],

@@ -71,6 +71,23 @@ def seq_fixture():
     return [calc_order(s, ctx) for s in specs], ctx
 
 
+def improve_fixture():
+    """改进夹具：GT 序（族内批产先）在本例非最优——研发单小批早交期（qty20/06-03）、
+    批产单大批晚交期（qty1000/08-01），意向优先级亦反转（研发 200 > 批产 50）使策略序=GT 序；
+    最优排列为研发先（策略序 15.0475 → 交换后 4.1475，探针实证）。供 heuristic/GA 覆盖
+    improved=True 分支（3B2 质量跟进）。"""
+    ctx = _ctx_two_fam()
+    specs = [
+        {"order_no": "WO-R", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "首单",
+         "water_vapor": "有", "qty": 20, "priority": 200, "due_date": "2026-06-03",
+         "kit_date": "2026-06-01", "features": {"N_die": 60, "N_wire": 60}},
+        {"order_no": "WO-B", "product": "P", "code": "M02-2D", "order_type": "常规", "first_flag": "否",
+         "water_vapor": "有", "qty": 1000, "priority": 50, "due_date": "2026-08-01",
+         "kit_date": "2026-06-01", "features": {"N_die": 60, "N_wire": 60}},
+    ]
+    return [calc_order(s, ctx) for s in specs], ctx
+
+
 def test_derive_family_and_type():
     assert derive_family({"code": "M02-2D"}) == "M02"
     assert derive_family({}, {"code": "M04-CP"}) == "M04"

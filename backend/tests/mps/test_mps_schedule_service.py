@@ -108,3 +108,48 @@ async def test_run_schedule_requires_orders(sqlite_session):
     with pytest.raises(ValueError) as ei:
         await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
     assert str(ei.value) == "无待排工单（orders.status='正常' 为空）"
+
+
+async def test_batch_no_sequence_is_numeric_not_lexical(sqlite_session):
+    """batch_no 序号=同前缀数字最大+1（词法序误判 -1000<-999；3B2 质量跟进）。"""
+    await _seed_orders(sqlite_session)
+    sqlite_session.add_all([
+        ScheduleBatch(batch_no="SCH-20260601-999", base_date=date(2026, 6, 1), solver_mode="deterministic"),
+        ScheduleBatch(batch_no="SCH-20260601-1000", base_date=date(2026, 6, 1), solver_mode="deterministic"),
+    ])
+    await sqlite_session.commit()
+    r = await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
+    assert r["batch_no"] == "SCH-20260601-1001"
+
+
+async def test_run_schedule_autosyncs_missing_operations(sqlite_session):
+    """未预同步工序需求的订单：服务自动补建（分配行 operation_id 非空；3B2 质量跟进）。"""
+    await load_mps_seed(sqlite_session)                    # 有意不调用 sync_order_operations
+    a = _mk_order("WO-NS", 1000, 100)
+    sqlite_session.add(a)
+    await sqlite_session.commit()
+    r = await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
+    rows = (await sqlite_session.execute(
+        select(ScheduleAllocation).where(ScheduleAllocation.order_id == a.id))).scalars().all()
+    assert rows and all(x.operation_id is not None for x in rows)
+    assert r["allocation_rows"] == len(rows)
+
+
+async def test_run_schedule_multiple_manual_operations(sqlite_session):
+    """同单多条手工工序：分配行各自关联到自己的 operation_id（3B2 质量跟进）。"""
+    a, b = await _seed_orders(sqlite_session)
+    m1 = await add_manual_operation(sqlite_session, a.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=5, note="返工1")
+    m2 = await add_manual_operation(sqlite_session, a.id, level="模块级", op="调试", mode=None,
+                                    qty=1052, usage=1, after_seq=5, note="返工2")
+    await run_schedule(sqlite_session, "2026-06-01", {"mode": "deterministic"})
+    a_rows = (await sqlite_session.execute(
+        select(ScheduleAllocation).where(ScheduleAllocation.order_id == a.id))).scalars().all()
+    n1 = [x for x in a_rows if x.operation_id == m1.id]
+    n2 = [x for x in a_rows if x.operation_id == m2.id]
+    assert len(n1) == 5 and len(n2) == 5
+    assert all(x.resource_key == "模块级|调试|/" for x in n1 + n2)
+    sums = {}
+    for x in n1 + n2:
+        sums[x.operation_id] = sums.get(x.operation_id, 0.0) + x.qty
+    assert sums[m1.id] == pytest.approx(1052) and sums[m2.id] == pytest.approx(1052)

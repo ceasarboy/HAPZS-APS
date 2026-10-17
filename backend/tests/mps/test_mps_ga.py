@@ -76,3 +76,30 @@ def test_run_ga_without_seeds_baseline_is_input_order():
     out = run_ga(passed, ctx, _opts(population=2, generations=0, seed=42))
     assert out["baseline_objective"] == pytest.approx(6.003333205390996)  # 输入序（优先序）目标；GT 序另见种子用例
     assert sorted(out["genome"]) == [0, 1, 2, 3, 4]
+
+
+def test_run_ga_weights_default_and_seed_truncation():
+    """权重缺省兜底 DEFAULT_WEIGHTS；种子数>种群 → 截断丢弃（3B2 质量跟进）。"""
+    passed, ctx = _passed_and_ctx()
+    strat_seq = strategy_mod.order_by_priority(list(passed))
+    out = run_ga(passed, ctx, {"base_date": BASE, "strategy": "priority", "setup": True,
+                               "population": 2, "generations": 0, "seed": 42,
+                               "seeds": [strat_seq, strat_seq]})
+    assert out["objective"] == pytest.approx(6.003333205390996)   # 无 weights → DEFAULT_WEIGHTS 兜底
+    bad = [passed[i] for i in (2, 3, 1, 4, 0)]                    # WO-5,WO-4,WO-2,WO-1,WO-3（探针实证最差序）
+    gt_seq = aps_sequence_heuristic(passed)
+    out2 = run_ga(passed, ctx, _opts(population=2, generations=0, seed=42,
+                                     seeds=[bad, bad, gt_seq]))
+    assert out2["objective"] == pytest.approx(8.103333205390996)  # 第 3 个更优种子被截断丢弃 → 最优=最差序
+    assert out2["improved"] is False
+
+
+def test_run_ga_improved_true_when_first_seed_inferior():
+    """改进分支：baseline=首个种子（最差序 8.1033…），种子含更优 GT 序 → improved=True（3B2 质量跟进）。"""
+    passed, ctx = _passed_and_ctx()
+    bad = [passed[i] for i in (2, 3, 1, 4, 0)]
+    gt_seq = aps_sequence_heuristic(passed)
+    out = run_ga(passed, ctx, _opts(population=2, generations=0, seed=42, seeds=[bad, gt_seq]))
+    assert out["baseline_objective"] == pytest.approx(8.103333205390996)
+    assert out["objective"] == pytest.approx(6.003333205390996)
+    assert out["improved"] is True

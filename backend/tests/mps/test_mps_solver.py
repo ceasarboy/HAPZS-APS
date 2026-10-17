@@ -3,7 +3,7 @@ import pytest
 
 from app.mps.schedule import schedule_process_constrained
 from app.mps.solver import MODES, solve
-from tests.mps.test_mps_aps import BASE, gate_fixture, seq_fixture
+from tests.mps.test_mps_aps import BASE, gate_fixture, improve_fixture, seq_fixture
 
 
 def _summary(planned):
@@ -75,6 +75,24 @@ def test_solve_heuristic_mode_reproducible():
     out2 = solve(results2, ctx2, {"base_date": BASE, "mode": "heuristic", "iterations": 50, "seed": 42})
     assert out["sequence"] == out2["sequence"]
     assert out["solver"]["objective"] == out2["solver"]["objective"]
+
+
+def test_solve_improved_branch_heuristic_and_ga():
+    """improved=True 分支：GT 序非最优夹具（策略序=GT 序 15.0475 → 最优 4.1475）下
+    heuristic 出 (已改进) 后缀、GA 找到更优排列（3B2 质量跟进）。"""
+    results, ctx = improve_fixture()
+    out = solve(results, ctx, {"base_date": BASE, "mode": "heuristic", "iterations": 200, "seed": 42})
+    assert out["method"] == "heuristic+local-search(已改进)"
+    assert out["sequence"] == ["WO-R", "WO-B"]
+    assert out["solver"]["improved"] is True
+    assert out["solver"]["baseline_objective"] == pytest.approx(15.0475)
+    assert out["solver"]["objective"] == pytest.approx(4.1475)
+    results2, ctx2 = improve_fixture()
+    out2 = solve(results2, ctx2, {"base_date": BASE, "mode": "ga", "population": 8, "generations": 3})
+    assert out2["sequence"] == ["WO-R", "WO-B"]
+    assert out2["solver"]["improved"] is True
+    assert out2["solver"]["baseline_objective"] == pytest.approx(15.0475)
+    assert out2["solver"]["objective"] == pytest.approx(4.1475)
 
 
 def test_solve_mode_exceptions():

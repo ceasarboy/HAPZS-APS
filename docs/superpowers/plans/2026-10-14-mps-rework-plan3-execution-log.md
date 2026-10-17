@@ -215,4 +215,29 @@
 
 **次要**（不处理，留痕）：`ga.py` `weights` 无缺省（独立调用易 KeyError）、`solver.py` heuristic `seed≤0` 用全局 `random` 未还原（与 `run_ga` 隔离策略不一致）、`1e-9`/`0.5`/默认 `30/20/42` 字面量重复、`ga.py` 对 `n<2` 无护栏。
 
+---
+
+## 七、质量跟进（2026-10-17，审查留待项处理）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| ⑥-1 `batch_no` 词法单调 >999 失效 | ✅ 修复 | 序号改「同前缀**数字**最大+1」（去 `order_by(desc)+limit(1)`）；镜像同步订正；新增 `test_batch_no_sequence_is_numeric_not_lexical`（-999/-1000 → -1001） |
+| ⑥-2 `run_schedule` 隐式预同步依赖 | ✅ 修复 | 契约由「不同步（调用方先行）」改为「**零工序行兜底自动补建**」（计算无错订单 `sync_order_operations`）；镜像 + 模块 docstring 同步；新增 `test_run_schedule_autosyncs_missing_operations` |
+| ⑥-3 GA `improved=True` 不可达 | ✅ 修复 | 新增 `improve_fixture`（策略序=GT 序 15.0475 → 最优 4.1475）；heuristic `(已改进)` 后缀与 GA improved=True 各一测；另以最差序种子覆盖 GA 改进语义 |
+| ⑥-4 测试覆盖缺口 | ✅ 部分补齐 | 新增 7 测：seed 截断（含最差序 `[2,3,1,4,0]`）、weights 缺省兜底、improved 两分支、同单多手工条、自动兜底同步、batch_no 数字序、手工→手工依赖清空 |
+| ⑥-5 `CHK-SCHED-010` 描述列 | ✅ 订正 | `schedule_result` → `schedule_allocation` + `orders` 回写 |
+| 次要：`ga.py` `weights` 无缺省 | ✅ 修复 | `opts.get("weights") or DEFAULT_WEIGHTS` 兜底（同测覆盖） |
+| 次要：heuristic `seed≤0` 全局 random | ⏳ 留待 | 计划 4/5（连同 `n<2` 护栏、字面量重复一并择机） |
+
+**探针实证（本次）**：
+1. `seq_fixture` 全排列枚举（`aps_evaluate`/`schedule` 口径 120 排列）**0 个优于 GT 序** → 原夹具 improved 分支原理性不可达；GA 解码器（`schedule_process_constrained`）口径复枚举同证（最差 8.1033…= `[WO-5,WO-4,WO-2,WO-1,WO-3]`）。
+2. `improve_fixture` 探针：GT/策略序 15.0475 → 交换后 4.1475，`optimize(seed=42, iters=200)` 稳定 improved=True；solver 两模式（heuristic/ga）复验同值。
+3. **教训**：`aps_gate` 输出的 `passed` **已按优先级排序**（`WO-3` 居首），构造种子索引须以 `passed` 实际顺序为准；首版按规格序假设致 2 断言失败，探针捕获后改 `(2,3,1,4,0)`。另：GA 解码器与 `aps_evaluate` 目标地形不同，夹具探针必须用与实现同口径的解码器。
+
+**验证**：相关 4 文件 28 passed；全量 **196 passed, 1 skipped**（189→196，+7）；镜像校验脚本抽取计划代码块与 `ga.py`/`schedule_service.py` 逐字一致。
+
+**提交**：单提交（源码修复 + 测试 + 计划镜像/清单/本记录同步）。
+
+**计划 4/5 衔接**：本次契约变更（兜底同步）已入 `run_schedule` docstring 与计划镜像，计划 4 API 层可省略显式预同步（仍可先行为之）；`improve_fixture` 供后续 UI/KPI 对照复用。
+
 
